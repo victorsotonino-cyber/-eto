@@ -10,7 +10,7 @@ const {
 } = require("discord.js");
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
+const CLIENT_ID = process.env.CLIENT_ID || "1557167878183067688";
 const GUILD_ID = process.env.GUILD_ID || null;
 const PORT = Number(process.env.PORT || 3000);
 const TICKET_IMAGE_URL = process.env.TICKET_IMAGE_URL || "";
