@@ -13,7 +13,7 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID || "1557167878183067688";
 const GUILD_ID = process.env.GUILD_ID || "1554248808194642040";
 const PORT = Number(process.env.PORT || 3000);
-const TICKET_IMAGE_URL = process.env.TICKET_IMAGE_URL || "";
+const TICKET_IMAGE_URL = process.env.TICKET_IMAGE_URL || "";\nconst BOT_BRAND = "Velo Studio";
 
 if (!TOKEN) {
   console.error("Falta DISCORD_TOKEN en las variables de entorno.");
@@ -101,7 +101,7 @@ function panelEmbed() {
       "👇 **Selecciona una categoría para comenzar.**\n" +
       "👇 **Select a category to get started.**"
     )
-    .setFooter({ text: "Noxxa • Sistema de Tickets" });
+    .setFooter({ text: BOT_BRAND + " • Sistema de Tickets" });
   if (TICKET_IMAGE_URL) e.setImage(TICKET_IMAGE_URL);
   return e;
 }
@@ -439,8 +439,8 @@ async function handleTicket(interaction) {
 }
 
 client.once("ready", async () => {
-  console.log("Nexus conectado como " + client.user.tag);
-  client.user.setActivity("🎫 /ticket panel", { type: 0 });
+  console.log(BOT_BRAND + " conectado como " + client.user.tag);
+  client.user.setActivity("🎫 Velo Studio • /ticket panel", { type: 0 });
   try { await registerCommands(); } catch (e) { console.error("Error registrando comandos:", e); }
 });
 
@@ -659,7 +659,7 @@ client.on("error", error => console.error("Discord client error:", error));
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-  res.end("Nexus Ticket Bot online.");
+  res.end(BOT_BRAND + " Ticket Bot online.");
 });
 
 server.listen(PORT, "0.0.0.0", () => console.log("Health server en puerto " + PORT));
