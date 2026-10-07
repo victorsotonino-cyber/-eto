@@ -319,7 +319,8 @@ const commands = [
   new SlashCommandBuilder().setName("slowmode").setDescription("Configura slowmode.").addIntegerOption(o => o.setName("segundos").setDescription("Segundos.").setMinValue(0).setMaxValue(21600).setRequired(true)),
   new SlashCommandBuilder().setName("nick").setDescription("Cambia un apodo.").addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)).addStringOption(o => o.setName("nombre").setDescription("Nuevo apodo.").setRequired(true)),
   new SlashCommandBuilder().setName("userinfo").setDescription("Muestra información de un usuario.").addUserOption(o => o.setName("usuario").setDescription("Usuario.")),
-  new SlashCommandBuilder().setName("serverinfo").setDescription("Muestra información del servidor.")
+  new SlashCommandBuilder().setName("serverinfo").setDescription("Muestra información del servidor."),
+  new SlashCommandBuilder().setName("post-alter").setDescription("Publica el formulario para postularse como Alter.")
 ].map(c => c.toJSON());
 
 const client = new Client({
@@ -565,6 +566,29 @@ client.on("interactionCreate", async interaction => {
             .setTimestamp()
         ]
       });
+    }
+
+    if (name === "post-alter") {
+      const embed = new EmbedBuilder()
+        .setColor(COLOR.purple)
+        .setTitle("🎁 FORMULARIO — POSTULACIÓN A ALTER")
+        .setDescription(
+          "**Completa todas las preguntas con información real y detallada.**\\n\\n" +
+          "**1. 👤 ¿Cuál es tu usuario de Discord?**\\nEscribe tu usuario actual de Discord.\\n\\n" +
+          "**2. 🌎 ¿De qué país eres?**\\nIndica tu país de residencia.\\n\\n" +
+          "**3. 🎂 ¿Qué edad tienes?**\\nIndica tu edad.\\n\\n" +
+          "**4. 📦 ¿De dónde consigues las cuentas que entregas?**\\nExplica de forma clara el origen de las cuentas.\\n\\n" +
+          "**5. 🎮 ¿Qué tipo de cuentas manejas y qué cantidad de stock tienes actualmente?**\\nIndica los tipos de cuentas y una cantidad aproximada de stock.\\n\\n" +
+          "**6. 🔄 ¿Con qué frecuencia puedes reponer tu stock?**\\nIndica cada cuánto puedes conseguir nuevo stock.\\n\\n" +
+          "**7. 🎉 ¿Cuántos sorteos o drops podrías realizar al día?**\\nIndica una cantidad aproximada.\\n\\n" +
+          "**8. 🎁 ¿Qué cantidad de cuentas podrías aportar semanalmente?**\\nIndica una cantidad aproximada.\\n\\n" +
+          "**9. 🛡️ ¿Cómo garantizas que las cuentas que entregas funcionan correctamente?**\\nExplica qué comprobaciones realizas antes de entregarlas.\\n\\n" +
+          "**10. ⭐ ¿Por qué quieres ser Alter de nuestro servidor y qué puedes aportar?**\\nCuéntanos tu experiencia, disponibilidad y qué valor aportarías al servidor."
+        )
+        .setFooter({ text: BOT_BRAND + " • Postulación a Alter" })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed] });
     }
 
     if (name === "userinfo") {
