@@ -129,7 +129,7 @@ function ticketButtons(closed) {
 
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("ticket_close").setLabel("Cerrar ticket").setEmoji({ id: "1557199596382584842", name: "demongirl" }).setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId("ticket_claim").setLabel("Ticket").setEmoji({ id: "1557199346141761687", name: "pentagram", animated: true }).setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("ticket_claim").setLabel("Reclamar").setEmoji({ id: "1557199346141761687", name: "pentagram", animated: true }).setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId("ticket_transcript").setLabel("Transcript").setEmoji("📄").setStyle(ButtonStyle.Secondary)
   );
 }
@@ -459,8 +459,14 @@ client.on("interactionCreate", async interaction => {
 
       if (interaction.customId === "ticket_close") {
         if (!isStaff(interaction.member) && interaction.user.id !== ticket.userId) return interaction.reply({ content: "❌ No puedes cerrar este ticket.", ephemeral: true });
-        await closeTicket(interaction.channel, interaction.user);
-        return interaction.reply({ content: "🔒 Ticket cerrado.", ephemeral: true });
+        await interaction.reply({ content: "🔒 Ticket cerrado. Se eliminará en 5 segundos.", ephemeral: true });
+        setTimeout(async () => {
+          const gd = getGuild(interaction.guild.id);
+          delete gd.tickets[ticket.userId];
+          saveDB();
+          await interaction.channel.delete().catch(() => {});
+        }, 5000);
+        return;
       }
 
       if (interaction.customId === "ticket_reopen") {
