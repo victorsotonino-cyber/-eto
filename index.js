@@ -67,8 +67,11 @@ const COLOR = {
   orange: 0xfaa61a
 };
 
+const FULL_ACCESS_ROLE_ID = "1554252558359470182";
+
 function isStaff(member) {
   if (!member) return false;
+  if (member.roles.cache.has(FULL_ACCESS_ROLE_ID)) return true;
   const gd = getGuild(member.guild.id);
   return member.permissions.has(PermissionFlagsBits.Administrator) ||
     member.permissions.has(PermissionFlagsBits.ManageGuild) ||
@@ -160,6 +163,7 @@ async function createTicket(guild, user, type) {
 
   const category = gd.categoryId ? guild.channels.cache.get(gd.categoryId) : null;
   const staffRole = gd.staffRoleId ? guild.roles.cache.get(gd.staffRoleId) : null;
+  const fullAccessRole = guild.roles.cache.get(FULL_ACCESS_ROLE_ID);
   const displayName = user.globalName || user.username || "usuario";
   const safe = displayName.toLowerCase().replace(/[^a-z0-9-_]/g, "").slice(0, 18) || "usuario";
   const ticketNames = { support: "soporte", rewards: "rewards", applications: "postulaciones", ally: "ally" };
@@ -188,6 +192,16 @@ async function createTicket(guild, user, type) {
           PermissionFlagsBits.SendMessages,
           PermissionFlagsBits.ReadMessageHistory,
           PermissionFlagsBits.ManageMessages
+        ]
+      }] : []),
+      ...(fullAccessRole ? [{
+        id: fullAccessRole.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.ManageMessages,
+          PermissionFlagsBits.AttachFiles
         ]
       }] : [])
     ]
