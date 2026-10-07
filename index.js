@@ -101,7 +101,7 @@ function panelEmbed() {
       "👇 **Selecciona una categoría para comenzar.**\n" +
       "👇 **Select a category to get started.**"
     )
-    .setFooter({ text: "Nexus • Sistema de Tickets" });
+    .setFooter({ text: "Noxxa • Sistema de Tickets" });
   if (TICKET_IMAGE_URL) e.setImage(TICKET_IMAGE_URL);
   return e;
 }
@@ -145,7 +145,7 @@ function welcomeEmbed(user, type) {
       "📝 Explica tu problema con el mayor detalle posible.\n\n" +
       "Un miembro del Staff te atenderá en cuanto pueda."
     )
-    .setFooter({ text: "Nexus • Sistema de Tickets" })
+    .setFooter({ text: "Noxxa • Sistema de Tickets" })
     .setTimestamp();
 }
 
