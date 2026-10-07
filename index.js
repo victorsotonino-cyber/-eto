@@ -321,6 +321,7 @@ const commands = [
   new SlashCommandBuilder().setName("userinfo").setDescription("Muestra información de un usuario.").addUserOption(o => o.setName("usuario").setDescription("Usuario.")),
   new SlashCommandBuilder().setName("serverinfo").setDescription("Muestra información del servidor."),
   new SlashCommandBuilder().setName("post-alter").setDescription("Publica el formulario para postularse como Alter.")
+    new SlashCommandBuilder().setName("post-staff").setDescription("Publica el formulario para postularse como Helper.")
 ].map(c => c.toJSON());
 
 const client = new Client({
@@ -566,6 +567,36 @@ client.on("interactionCreate", async interaction => {
             .setTimestamp()
         ]
       });
+    }
+
+    if (name === "post-staff") {
+      const questions = [
+        "👤 ¿Cuál es tu nombre/usuario de Discord?",
+        "🎂 ¿Qué edad tienes?",
+        "🌎 ¿De qué país eres y cuál es tu zona horaria?",
+        "⏰ ¿Cuánto tiempo puedes estar activo en el servidor diariamente?",
+        "🧠 ¿Has tenido experiencia como Helper, Moderador o Staff en otros servidores?",
+        "🎯 ¿Por qué quieres formar parte del Staff de nuestro servidor?",
+        "🛠️ ¿Qué harías si un usuario está haciendo spam, estafando o incumpliendo las reglas?",
+        "⚖️ Si un amigo tuyo incumple las reglas, ¿lo sancionarías? ¿Por qué?",
+        "🚨 ¿Qué harías si dos usuarios tienen una discusión dentro del servidor?",
+        "⭐ ¿Por qué deberíamos elegirte como Helper y qué puedes aportar al servidor?"
+      ];
+
+      const embed = new EmbedBuilder()
+        .setColor(COLOR.purple)
+        .setTitle("🛡️ FORMULARIO — POSTULACIÓN A HELPER")
+        .setDescription(
+          "**📋 Responde las preguntas en orden.**\n" +
+          "Copia el número de cada pregunta y escribe tu respuesta debajo.\n\n" +
+          questions.map((q, i) => "**" + (i + 1) + ". " + q + "**\n> ✏️ Respuesta:").join("\n\n") +
+          "\n\n📌 **Buscamos personas activas, responsables, respetuosas y comprometidas con la comunidad.**\n\n" +
+          "<@&1554708798499725393> <@&1554708987700715531>"
+        )
+        .setFooter({ text: BOT_BRAND + " • Postulación a Helper" })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed] });
     }
 
     if (name === "post-alter") {
