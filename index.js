@@ -320,8 +320,8 @@ const commands = [
   new SlashCommandBuilder().setName("nick").setDescription("Cambia un apodo.").addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)).addStringOption(o => o.setName("nombre").setDescription("Nuevo apodo.").setRequired(true)),
   new SlashCommandBuilder().setName("userinfo").setDescription("Muestra información de un usuario.").addUserOption(o => o.setName("usuario").setDescription("Usuario.")),
   new SlashCommandBuilder().setName("serverinfo").setDescription("Muestra información del servidor."),
-  new SlashCommandBuilder().setName("post-alter").setDescription("Publica el formulario para postularse como Alter.")
-    new SlashCommandBuilder().setName("post-staff").setDescription("Publica el formulario para postularse como Helper.")
+  new SlashCommandBuilder().setName("post-alter").setDescription("Publica el formulario para postularse como Alter."),
+  new SlashCommandBuilder().setName("post-staff").setDescription("Publica el formulario para postularse como Helper.")
 ].map(c => c.toJSON());
 
 const client = new Client({
