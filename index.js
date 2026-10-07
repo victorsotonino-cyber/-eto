@@ -160,7 +160,8 @@ async function createTicket(guild, user, type) {
 
   const category = gd.categoryId ? guild.channels.cache.get(gd.categoryId) : null;
   const staffRole = gd.staffRoleId ? guild.roles.cache.get(gd.staffRoleId) : null;
-  const safe = user.username.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 18) || "usuario";
+  const displayName = user.globalName || user.username || "usuario";
+  const safe = displayName.toLowerCase().replace(/[^a-z0-9-_]/g, "").slice(0, 18) || "usuario";
   const ticketNames = { support: "soporte", rewards: "rewards", applications: "postulaciones", ally: "ally" };
   const ticketPrefix = ticketNames[type] || "ticket";
 
