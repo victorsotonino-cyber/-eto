@@ -36,10 +36,6 @@ function dashboardUser(req){const c=parseCookies(req);return c.dash_session?sess
 function guildConfig(guildId){const d=dashboardData();const g=getGuild(guildId);return {...g,openTickets:Object.values(g.tickets||{}).filter(t=>!t.closed).length};}
 
 
-if (!TOKEN) {
-  console.error("Falta DISCORD_TOKEN en las variables de entorno.");
-  process.exit(1);
-}
 
 const DATA_DIR = path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "ticket-data.json");
@@ -840,4 +836,4 @@ const server = http.createServer(async (req,res) => {
  }catch(e){console.error("Dashboard error:",e);res.writeHead(500,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"Error interno del dashboard."}))}
 });
 server.listen(PORT,"0.0.0.0",()=>console.log("Health server en puerto "+PORT));
-client.login(TOKEN).catch(error=>{console.error("No se pudo iniciar sesión en Discord:",error);process.exit(1)});
+if(TOKEN){client.login(TOKEN).catch(error=>{console.error("No se pudo iniciar sesión en Discord:",error);process.exit(1)})}else{console.log("Dashboard iniciado sin DISCORD_TOKEN. El bot permanece apagado en este servicio.")}
