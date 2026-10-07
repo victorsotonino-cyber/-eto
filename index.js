@@ -155,8 +155,8 @@ async function sendLog(guild, embed) {
 
 async function createTicket(guild, user, type) {
   const gd = getGuild(guild.id);
-  const existing = Object.values(gd.tickets).find(t => t.userId === user.id && !t.closed);
-  if (existing) return { existing: true, channelId: existing.channelId };
+  const openTickets = Object.values(gd.tickets).filter(t => t.userId === user.id && !t.closed);
+  if (openTickets.length >= 2) return { limit: true, channelIds: openTickets.map(t => t.channelId) };
 
   const category = gd.categoryId ? guild.channels.cache.get(gd.categoryId) : null;
   const staffRole = gd.staffRoleId ? guild.roles.cache.get(gd.staffRoleId) : null;
@@ -435,7 +435,8 @@ client.on("interactionCreate", async interaction => {
     if (interaction.isStringSelectMenu() && interaction.customId === "ticket_create") {
       await interaction.deferReply({ ephemeral: true });
       const result = await createTicket(interaction.guild, interaction.user, interaction.values[0]);
-      return interaction.editReply(result.existing ? "📂 Ya tienes un ticket: <#" + result.channelId + ">" : "✅ Ticket creado: " + result.channel);
+      if (result.limit) return interaction.editReply("⚠️ Has alcanzado el límite de **2 tickets abiertos**. Cierra uno antes de abrir otro.");
+      return interaction.editReply("✅ Ticket creado: " + result.channel);
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("ticket_")) {
