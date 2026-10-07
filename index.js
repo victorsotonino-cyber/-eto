@@ -540,7 +540,7 @@ client.on("interactionCreate", async interaction => {
       const member = await interaction.guild.members.fetch(user.id).catch(() => null);
       let nicknameUpdated = false;
 
-      if (member && member.manageable) {
+      if (target && target.manageable) {
         const current = member.nickname || member.user.globalName || member.user.username;
         const base = current.replace(/\\s*\\d+V\\s*$/i, "").trim();
         const newNickname = (base + " " + count + "V").slice(0, 32);
@@ -705,18 +705,33 @@ client.on("messageCreate", async message => {
     const match = message.content.match(/^vouch\\s+<@!?([0-9]+)>\\s+(.+)$/i);
     if (!match) return;
 
-    const userId = match[1];
-    const vouchMessage = match[2].trim();
+    const userId = match[1] || null;
+    const mentionedName = match[2] || null;
+    const vouchMessage = match[3].trim();
     if (!vouchMessage) return;
 
     const gd = getGuild(message.guild.id);
     if (!gd.vouches) gd.vouches = {};
+    if (!member && !targetId) return;
 
-    const count = Number(gd.vouches[userId] || 0) + 1;
-    gd.vouches[userId] = count;
+    const target = member || (targetId ? await message.guild.members.fetch(targetId).catch(() => null) : null);
+    if (!target) return message.reply("No encontré a ese usuario en el servidor.");
+
+    const current = target.nickname || target.user.globalName || target.user.username;
+    const existing = current.match(/(\\d+)V\\s*$/i);
+    const count = Number(gd.vouches[target.id] ?? (existing ? existing[1] : 0)) + 1;
+    gd.vouches[target.id] = count;
     saveDB();
 
-    const member = await message.guild.members.fetch(userId).catch(() => null);
+    let member = userId ? await message.guild.members.fetch(userId).catch(() => null) : null;
+    if (!member && mentionedName) {
+      member = message.guild.members.cache.find(m =>
+        m.user.username.toLowerCase() === mentionedName.toLowerCase() ||
+        (m.user.globalName && m.user.globalName.toLowerCase() === mentionedName.toLowerCase()) ||
+        (m.nickname && m.nickname.toLowerCase() === mentionedName.toLowerCase())
+      ) || null;
+    }
+    const targetId = member ? member.id : userId;
     let nicknameUpdated = false;
 
     if (member && member.manageable) {
@@ -724,8 +739,8 @@ client.on("messageCreate", async message => {
       const base = current.replace(/\\s*\\d+V\\s*$/i, "").trim();
       const newNickname = (base + " " + count + "V").slice(0, 32);
 
-      if (newNickname !== current) {
-        await member.setNickname(newNickname, "Vouch recibido").then(() => {
+      if (newNickname !== currentName) {
+        await target.setNickname(newNickname, "Vouch recibido").then(() => {
           nicknameUpdated = true;
         }).catch(() => {});
       }
