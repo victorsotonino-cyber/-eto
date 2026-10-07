@@ -10,10 +10,11 @@ const {
 } = require("discord.js");
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID || "1557167878183067688";
-const GUILD_ID = process.env.GUILD_ID || "1554248808194642040";
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID || "";
 const PORT = Number(process.env.PORT || 3000);
-const TICKET_IMAGE_URL = process.env.TICKET_IMAGE_URL || "";\nconst BOT_BRAND = "Velo Studio";
+const TICKET_IMAGE_URL = process.env.TICKET_IMAGE_URL || "";
+const BOT_BRAND = "Nexus";
 
 if (!TOKEN) {
   console.error("Falta DISCORD_TOKEN en las variables de entorno.");
@@ -145,7 +146,7 @@ function welcomeEmbed(user, type) {
       "📝 Explica tu problema con el mayor detalle posible.\n\n" +
       "Un miembro del Staff te atenderá en cuanto pueda."
     )
-    .setFooter({ text: "Noxxa • Sistema de Tickets" })
+    .setFooter({ text: BOT_BRAND + " • Sistema de Tickets" })
     .setTimestamp();
 }
 
@@ -440,7 +441,7 @@ async function handleTicket(interaction) {
 
 client.once("ready", async () => {
   console.log(BOT_BRAND + " conectado como " + client.user.tag);
-  client.user.setActivity("🎫 Velo Studio • /ticket panel", { type: 0 });
+  client.user.setActivity("🎫 Nexus • /ticket panel", { type: 0 });
   try { await registerCommands(); } catch (e) { console.error("Error registrando comandos:", e); }
 });
 
