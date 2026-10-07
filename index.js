@@ -218,7 +218,7 @@ async function createTicket(guild, user, type) {
   saveDB();
 
   await channel.send({
-    content: user + " <@&" + "1554708798499725393" + "> <@&" + "1554708987700715531" + ">",
+    content: user + " <@&" + "1554708798499725393" + "> <@&" + "1554708987700715531" + ">" + (type === "rewards" ? " <@&" + "1554248808194642048" + ">" : ""),
     embeds: [welcomeEmbed(user, type)],
     components: [ticketButtons(false)]
   });
