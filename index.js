@@ -392,7 +392,7 @@ async function handleTicket(interaction) {
   if (sub === "claim") {
     ticket.claimedBy = interaction.user.id;
     saveDB();
-    await channel.send({ embeds: [new EmbedBuilder().setColor(COLOR.blue).setTitle("🙋 Ticket reclamado").setDescription("Atendido por " + interaction.user + ".")] });
+    await channel.send({ embeds: [new EmbedBuilder().setColor(COLOR.blue).setTitle("🙋 Ticket reclamado").setDescription("Atendido por <@" + interaction.user.id + ">.")] });
     return interaction.reply({ content: "🙋 Ticket reclamado.", ephemeral: true });
   }
 
