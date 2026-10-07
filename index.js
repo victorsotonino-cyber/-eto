@@ -10,8 +10,8 @@ const {
 } = require("discord.js");
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
-const GUILD_ID = process.env.GUILD_ID || "";
+const CLIENT_ID = process.env.CLIENT_ID || "1557167878183067688";
+const GUILD_ID = process.env.GUILD_ID || "1554248808194642040";
 const PORT = Number(process.env.PORT || 3000);
 const TICKET_IMAGE_URL = process.env.TICKET_IMAGE_URL || "";
 const BOT_BRAND = "Nexus";
@@ -332,8 +332,8 @@ async function registerCommands() {
   if (!CLIENT_ID) return;
   const rest = new REST({ version: "10" }).setToken(TOKEN);
   if (GUILD_ID) {
-    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
-    console.log("Comandos registrados en el servidor.");
+    const result = await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+    console.log("Comandos registrados en el servidor:", Array.isArray(result) ? result.map(c => c.name).join(", ") : "OK");
   } else {
     await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
     console.log("Comandos globales registrados.");
