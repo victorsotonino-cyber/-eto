@@ -479,7 +479,7 @@ client.on("interactionCreate", async interaction => {
         if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Solo Staff.", ephemeral: true });
         ticket.claimedBy = interaction.user.id;
         saveDB();
-        await interaction.channel.send({ embeds: [new EmbedBuilder().setColor(COLOR.blue).setTitle("🙋 Ticket reclamado").setDescription("Atendido por " + interaction.user + ".")] });
+        await interaction.channel.send({ embeds: [new EmbedBuilder().setColor(COLOR.blue).setTitle("🙋 Ticket reclamado").setDescription("Atendido por <@" + interaction.user.id + ">.")] });
         return interaction.reply({ content: "🙋 Ticket reclamado.", ephemeral: true });
       }
 
