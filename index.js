@@ -128,8 +128,8 @@ function ticketButtons(closed) {
   );
 
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("ticket_close").setLabel("Cerrar").setEmoji("🔒").setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId("ticket_claim").setLabel("Reclamar").setEmoji("🙋").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("ticket_close").setLabel("Cerrar ticket").setEmoji({ id: "1557199596382584842", name: "demongirl" }).setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId("ticket_claim").setLabel("Ticket").setEmoji({ id: "1557199346141761687", name: "pentagram", animated: true }).setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId("ticket_transcript").setLabel("Transcript").setEmoji("📄").setStyle(ButtonStyle.Secondary)
   );
 }
