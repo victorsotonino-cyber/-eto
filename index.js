@@ -20,7 +20,7 @@ const DASHBOARD_URL = process.env.DASHBOARD_URL || "https://nexush-1xmz.onrender
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
 const DISCORD_REDIRECT_URI = DASHBOARD_URL + "/auth/discord/callback";
 const sessions = new Map();
-const dashboardFile = path.join(DATA_DIR, "dashboard.json");
+let dashboardFile;
 
 function dashboardData() {
   try { return fs.existsSync(dashboardFile) ? JSON.parse(fs.readFileSync(dashboardFile, "utf8")) : {}; }
@@ -43,6 +43,7 @@ if (!TOKEN) {
 
 const DATA_DIR = path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "ticket-data.json");
+dashboardFile = path.join(DATA_DIR, "dashboard.json");
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function loadDB() {
