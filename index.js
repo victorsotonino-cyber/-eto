@@ -319,11 +319,7 @@ const commands = [
   new SlashCommandBuilder().setName("slowmode").setDescription("Configura slowmode.").addIntegerOption(o => o.setName("segundos").setDescription("Segundos.").setMinValue(0).setMaxValue(21600).setRequired(true)),
   new SlashCommandBuilder().setName("nick").setDescription("Cambia un apodo.").addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)).addStringOption(o => o.setName("nombre").setDescription("Nuevo apodo.").setRequired(true)),
   new SlashCommandBuilder().setName("userinfo").setDescription("Muestra información de un usuario.").addUserOption(o => o.setName("usuario").setDescription("Usuario.")),
-  new SlashCommandBuilder().setName("serverinfo").setDescription("Muestra información del servidor."),
-
-  new SlashCommandBuilder().setName("vouch").setDescription("Da un vouch a un usuario y actualiza sus V.")
-    .addUserOption(o => o.setName("usuario").setDescription("Usuario que recibe el vouch.").setRequired(true))
-    .addStringOption(o => o.setName("mensaje").setDescription("Comentario del vouch.").setRequired(true).setMaxLength(500))
+  new SlashCommandBuilder().setName("serverinfo").setDescription("Muestra información del servidor.")
 ].map(c => c.toJSON());
 
 const client = new Client({
@@ -699,6 +695,51 @@ client.on("interactionCreate", async interaction => {
     const msg = "❌ " + (error?.message || "Ocurrió un error.").slice(0, 1800);
     if (interaction.replied || interaction.deferred) await interaction.followUp({ content: msg, ephemeral: true }).catch(() => {});
     else await interaction.reply({ content: msg, ephemeral: true }).catch(() => {});
+  }
+});
+
+client.on("messageCreate", async message => {
+  try {
+    if (message.author.bot || !message.guild) return;
+
+    const match = message.content.match(/^vouch\\s+<@!?([0-9]+)>\\s+(.+)$/i);
+    if (!match) return;
+
+    const userId = match[1];
+    const vouchMessage = match[2].trim();
+    if (!vouchMessage) return;
+
+    const gd = getGuild(message.guild.id);
+    if (!gd.vouches) gd.vouches = {};
+
+    const count = Number(gd.vouches[userId] || 0) + 1;
+    gd.vouches[userId] = count;
+    saveDB();
+
+    const member = await message.guild.members.fetch(userId).catch(() => null);
+    let nicknameUpdated = false;
+
+    if (member && member.manageable) {
+      const current = member.nickname || member.user.globalName || member.user.username;
+      const base = current.replace(/\\s*\\d+V\\s*$/i, "").trim();
+      const newNickname = (base + " " + count + "V").slice(0, 32);
+
+      if (newNickname !== current) {
+        await member.setNickname(newNickname, "Vouch recibido").then(() => {
+          nicknameUpdated = true;
+        }).catch(() => {});
+      }
+    }
+
+    await message.reply(
+      "**Vouch recibido**\\n" +
+      "Usuario: <@" + userId + ">\\n" +
+      "Vouch: **" + count + "V**\\n" +
+      "Mensaje: " + vouchMessage +
+      (nicknameUpdated ? "\\nNombre actualizado a **" + count + "V**." : "")
+    );
+  } catch (error) {
+    console.error("Vouch error:", error);
   }
 });
 
