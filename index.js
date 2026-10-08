@@ -2504,6 +2504,6 @@ process.on("uncaughtException", error => {
   try { if (dbDirty) saveDBNow("uncaughtException"); } catch {}
 });
 
-const RUN_BOT = process.env.RUN_BOT === "true" || !process.env.RENDER_SERVICE_ID;
+const RUN_BOT = process.env.RUN_BOT !== "false";
 if (RUN_BOT) startBot();
 else console.log("Nexus: modo Dashboard activo (RUN_BOT=false).");
