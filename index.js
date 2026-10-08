@@ -102,7 +102,19 @@ const EMOJI_IMPORT_PACK = [
   { name: "red_heart", category: "general", url: "https://cdn3.emoji.gg/emojis/875059-red-heart.png" },
   { name: "yellow_heart", category: "general", url: "https://cdn3.emoji.gg/emojis/363660-yellow-heart.png" },
   { name: "orange_heart", category: "general", url: "https://cdn3.emoji.gg/emojis/991338-orange-heart.png" },
-  { name: "green_heart", category: "general", url: "https://cdn3.emoji.gg/emojis/227886-green-heart.png" }
+  { name: "green_heart", category: "general", url: "https://cdn3.emoji.gg/emojis/227886-green-heart.png" },
+  { name: "animated_heart", category: "animados", url: "https://cdn3.emoji.gg/emojis/45662-animated-heart.gif" },
+  { name: "animated_fire", category: "animados", url: "https://cdn3.emoji.gg/emojis/5138-fire.gif" },
+  { name: "animated_welcome", category: "animados", url: "https://cdn3.emoji.gg/emojis/8573-welcome.gif" },
+  { name: "animated_loading", category: "animados", url: "https://cdn3.emoji.gg/emojis/6594-loading.gif" },
+  { name: "animated_loading_hearts", category: "animados", url: "https://cdn3.emoji.gg/emojis/9565_loading_hearts.gif" },
+  { name: "animated_galaxy_heart", category: "animados", url: "https://cdn3.emoji.gg/emojis/4387-galaxy-heart.gif" },
+  { name: "cat_dance", category: "animados", url: "https://cdn3.emoji.gg/emojis/CatDance.gif" },
+  { name: "dance", category: "animados", url: "https://cdn3.emoji.gg/emojis/1146_dance.gif" },
+  { name: "cat_jam", category: "animados", url: "https://cdn3.emoji.gg/emojis/5498_catJAM.gif" },
+  { name: "rainbow_cat_party", category: "animados", url: "https://cdn3.emoji.gg/emojis/99516-rainbow-cat-party.gif" },
+  { name: "cat_blink", category: "animados", url: "https://cdn3.emoji.gg/emojis/6672-cat-blink.gif" },
+  { name: "party_cat", category: "animados", url: "https://cdn3.emoji.gg/emojis/5577-party-cat.gif" }
 ];
 
 const COLOR = {
