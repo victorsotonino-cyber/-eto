@@ -1278,6 +1278,21 @@ const commands = [
     .addStringOption(o => o.setName("mensaje").setDescription("Mensaje del vouch.").setRequired(true))
 ,
   new SlashCommandBuilder()
+    .setName("emoji-pack")
+    .setDescription("Muestra un pack con los emojis personalizados de este servidor.")
+    .addStringOption(o => o
+      .setName("categoria")
+      .setDescription("Filtra el pack por categoría.")
+      .addChoices(
+        { name: "Todos", value: "all" },
+        { name: "Staff", value: "staff" },
+        { name: "Moderación", value: "moderacion" },
+        { name: "Owner", value: "owner" },
+        { name: "Reclaim", value: "reclaim" },
+        { name: "General", value: "general" }
+      )),
+
+  new SlashCommandBuilder()
     .setName("emoji")
     .setDescription("Gestiona emojis personalizados del servidor.")
     .addSubcommand(s => s.setName("lista").setDescription("Muestra los emojis personalizados por categoría."))
@@ -1733,6 +1748,76 @@ client.on("interactionCreate", async interaction => {
             .setTimestamp()
         ]
       });
+    }
+
+    if (name === "emoji-pack") {
+      await fetchGuildEmojis(interaction.guild);
+      const selected = interaction.options.getString("categoria") || "all";
+      const groups = { staff: [], moderacion: [], owner: [], reclaim: [], general: [] };
+
+      for (const emoji of interaction.guild.emojis.cache.values()) {
+        if (!emoji?.available) continue;
+        const n = String(emoji.name || "sin_nombre").toLowerCase();
+        const group = n.startsWith("staff_") ? "staff"
+          : n.startsWith("mod_") || n.startsWith("moderacion_") ? "moderacion"
+          : n.startsWith("owner_") ? "owner"
+          : n.startsWith("reclaim_") ? "reclaim"
+          : "general";
+        groups[group].push(emoji);
+      }
+
+      for (const list of Object.values(groups)) {
+        list.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+      }
+
+      const titles = {
+        staff: "🛡️ STAFF",
+        moderacion: "🔨 MODERACIÓN",
+        owner: "👑 OWNER",
+        reclaim: "🎟️ RECLAIM",
+        general: "✨ GENERAL"
+      };
+      const selectedGroups = selected === "all" ? Object.keys(groups) : [selected];
+      const lines = [];
+      let total = 0;
+
+      for (const key of selectedGroups) {
+        const list = groups[key] || [];
+        total += list.length;
+        lines.push("**" + titles[key] + "**");
+        if (!list.length) {
+          lines.push("> Sin emojis en esta categoría.\n");
+          continue;
+        }
+        for (const emoji of list) {
+          const tag = emoji.toString();
+          lines.push(tag + "  \`" + emoji.name + "\`  •  " + emoji.id);
+        }
+        lines.push("");
+      }
+
+      const description = lines.join("\n").trim() || "No hay emojis personalizados disponibles.";
+      const chunks = [];
+      let current = "";
+      for (const line of description.split("\n")) {
+        if ((current + line + "\n").length > 3800) {
+          if (current.trim()) chunks.push(current.trim());
+          current = "";
+        }
+        current += line + "\n";
+      }
+      if (current.trim()) chunks.push(current.trim());
+
+      if (!chunks.length) chunks.push("No hay emojis personalizados disponibles.");
+      const embeds = chunks.slice(0, 10).map((chunk, index) =>
+        new EmbedBuilder()
+          .setColor(COLOR.purple)
+          .setTitle(index === 0 ? "✨ Emoji Pack • " + interaction.guild.name : "✨ Emoji Pack • Continuación")
+          .setDescription(chunk)
+          .setFooter({ text: BOT_BRAND + " • " + total + " emojis" })
+      );
+
+      return interaction.reply({ embeds });
     }
 
     if (name === "emoji") {
