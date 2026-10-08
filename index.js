@@ -700,10 +700,51 @@ function ticketPrefix(type) {
   })[type] || "ticket";
 }
 
-function panelEmbed() {
+async function fetchGuildEmojis(guild) {
+  try {
+    await guild.emojis.fetch();
+  } catch (error) {
+    console.log("Nexus: no pude actualizar la lista de emojis:", error.message);
+  }
+}
+
+function emojiObject(emoji) {
+  if (!emoji) return null;
+  return { id: emoji.id, name: emoji.name, animated: Boolean(emoji.animated) };
+}
+
+function findGuildEmoji(guild, names, fallback) {
+  const wanted = names.map(name => String(name).toLowerCase());
+  for (const name of wanted) {
+    const found = guild.emojis.cache.find(e => e.name?.toLowerCase() === name && e.available !== false);
+    if (found) return emojiObject(found);
+  }
+
+  for (const name of wanted) {
+    const found = guild.emojis.cache.find(e => {
+      const current = String(e.name || "").toLowerCase();
+      return e.available !== false && (current.includes(name) || name.includes(current));
+    });
+    if (found) return emojiObject(found);
+  }
+
+  return fallback || null;
+}
+
+function emojiText(guild, names, fallback) {
+  const data = findGuildEmoji(guild, names, fallback);
+  return data ? "<" + (data.animated ? "a" : "") + ":" + data.name + ":" + data.id + ">" : "";
+}
+
+function panelEmbed(guild) {
+  const support = emojiText(guild, ["TestSupporter", "staff_support", "support", "soporte"]);
+  const rewards = emojiText(guild, ["RedStar", "reclaim_rewards", "reclaim", "rewards"]);
+  const applications = emojiText(guild, ["postulaciones", "postulacion", "staff_application", "application", "apply", "staff"]);
+  const ally = emojiText(guild, ["ally", "otros", "other", "owner_ally"]);
+
   const embed = new EmbedBuilder()
     .setColor(COLOR.purple)
-    .setTitle("🎫 • Sistema de Tickets")
+    .setTitle((support || "🎫") + " • Sistema de Tickets")
     .setDescription(
       "🇪🇸 **Español**\n" +
       "¿Necesitas ayuda, quieres reclamar una recompensa o enviar una postulación?\n" +
@@ -711,8 +752,11 @@ function panelEmbed() {
       "🇬🇧 **English**\n" +
       "Need help, want to claim a reward, or submit an application?\n" +
       "Select the category that matches your request.\n\n" +
-      "👇 **Selecciona una categoría para comenzar.**\n" +
-      "👇 **Select a category to get started.**"
+      (support || "•") + " **Soporte**  •  " +
+      (rewards || "•") + " **Rewards**  •  " +
+      (applications || "•") + " **Postulaciones**  •  " +
+      (ally || "•") + " **Ally**\n\n" +
+      "👇 **Selecciona una categoría para comenzar.**"
     )
     .setFooter({ text: BOT_BRAND + " • Sistema de Tickets" });
 
@@ -720,25 +764,32 @@ function panelEmbed() {
   return embed;
 }
 
-function findGuildEmoji(guild, names, fallback) {
-  for (const name of names) {
-    const found = guild.emojis.cache.find(e => e.name?.toLowerCase() === String(name).toLowerCase());
-    if (found) return { id: found.id, name: found.name, animated: found.animated };
-  }
-  return fallback;
-}
+async function panelComponents(guild) {
+  await fetchGuildEmojis(guild);
 
-function panelComponents(guild) {
+  const support = findGuildEmoji(guild, ["TestSupporter", "staff_support", "support", "soporte"], EMOJIS.support);
+  const rewards = findGuildEmoji(guild, ["RedStar", "reclaim_rewards", "reclaim", "rewards"], EMOJIS.rewards);
+  const applications = findGuildEmoji(guild, ["postulaciones", "postulacion", "staff_application", "application", "apply", "staff"], null);
+  const ally = findGuildEmoji(guild, ["ally", "otros", "other", "owner_ally"], null);
+
+  // Si no existe un nombre exacto para las dos categorías nuevas, usamos
+  // otro emoji personalizado YA existente en el servidor, nunca un emoji Unicode.
+  const customPool = [...guild.emojis.cache.values()].filter(e => e.available !== false);
+  const fallbackPool = customPool.filter(e => e.id !== support?.id && e.id !== rewards?.id);
+
+  const applicationEmoji = applications || emojiObject(fallbackPool[0]) || support;
+  const allyEmoji = ally || emojiObject(fallbackPool.find(e => e.id !== applicationEmoji?.id)) || rewards;
+
   return [
     new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId("ticket_create")
         .setPlaceholder("Haz una selección • Select a category")
         .addOptions(
-          { label: "Soporte", description: "Obtén ayuda del staff.", value: "support", emoji: findGuildEmoji(guild, ["staff_support","support","soporte"], EMOJIS.support) },
-          { label: "Rewards", description: "Reclama tu recompensa.", value: "rewards", emoji: findGuildEmoji(guild, ["reclaim_rewards","reclaim","rewards"], EMOJIS.rewards) },
-          { label: "Postulaciones", description: "Envía una postulación al equipo.", value: "applications", emoji: findGuildEmoji(guild, ["staff_postulacion","staff_application","postulaciones"], "📝") },
-          { label: "Ally", description: "Cualquier otra consulta.", value: "ally", emoji: findGuildEmoji(guild, ["owner_ally","ally"], "🤝") }
+          { label: "Soporte", description: "Obtén ayuda del staff.", value: "support", emoji: support },
+          { label: "Rewards", description: "Reclama tu recompensa.", value: "rewards", emoji: rewards },
+          { label: "Postulaciones", description: "Envía una postulación al equipo.", value: "applications", emoji: applicationEmoji },
+          { label: "Ally", description: "Cualquier otra consulta.", value: "ally", emoji: allyEmoji }
         )
     )
   ];
@@ -1285,7 +1336,7 @@ function renderQuestions(questions) {
   return items.join("");
 }
 
-async function handleTicket(interaction) {
+async async function handleTicket(interaction) {
   const sub = interaction.options.getSubcommand();
   const gd = getGuild(interaction.guild.id);
   const channel = interaction.channel;
@@ -1295,7 +1346,7 @@ async function handleTicket(interaction) {
     if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Necesitas permisos de Staff.", ephemeral: true });
     const target = interaction.options.getChannel("canal") || channel;
     if (!target?.isTextBased()) return interaction.reply({ content: "❌ Ese canal no admite mensajes.", ephemeral: true });
-    await target.send({ embeds: [panelEmbed()], components: panelComponents(interaction.guild) });
+    await target.send({ embeds: [panelEmbed(interaction.guild)], components: await panelComponents(interaction.guild) });
     return interaction.reply({ content: "✅ Panel enviado en " + target + ".", ephemeral: true });
   }
 
