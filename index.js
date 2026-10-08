@@ -1287,8 +1287,10 @@ const commands = [
         { name: "Todos", value: "all" },
         { name: "Staff", value: "staff" },
         { name: "Moderación", value: "moderacion" },
-        { name: "Owner", value: "owner" },
         { name: "Reclaim", value: "reclaim" },
+        { name: "Sorteos", value: "sorteos" },
+        { name: "Memes", value: "memes" },
+        { name: "Owner", value: "owner" },
         { name: "General", value: "general" }
       )),
 
@@ -1754,16 +1756,20 @@ client.on("interactionCreate", async interaction => {
       await fetchGuildEmojis(interaction.guild);
 
       const selected = interaction.options.getString("categoria") || "all";
-      const groups = { staff: [], moderacion: [], owner: [], reclaim: [], general: [] };
+      const groups = { staff: [], moderacion: [], reclaim: [], sorteos: [], memes: [], owner: [], general: [] };
 
       for (const emoji of interaction.guild.emojis.cache.values()) {
         if (!emoji || emoji.available === false) continue;
 
-        const n = String(emoji.name || "sin_nombre").toLowerCase();
-        const group = n.startsWith("staff_") ? "staff"
-          : n.startsWith("mod_") || n.startsWith("moderacion_") ? "moderacion"
-          : n.startsWith("owner_") ? "owner"
-          : n.startsWith("reclaim_") ? "reclaim"
+        const n = String(emoji.name || "sin_nombre").toLowerCase().replace(/[-\s]+/g, "_");
+        const has = (...words) => words.some(word => n.includes(word));
+
+        const group = has("staff", "helper", "modteam", "moderador", "moderacion", "moderation") && !has("owner")
+          ? (has("moderador", "moderacion", "moderation", "mod_") ? "moderacion" : "staff")
+          : has("reclaim", "claim", "reclamar", "reclamo", "recompensa", "reward") ? "reclaim"
+          : has("sorteo", "sorteos", "giveaway", "giveaways", "raffle", "drop", "premio") ? "sorteos"
+          : has("meme", "memes", "lol", "funny", "xd") ? "memes"
+          : has("owner", "owner_", "dueño", "dueno", "founder", "admin") ? "owner"
           : "general";
 
         groups[group].push(emoji);
@@ -1776,8 +1782,10 @@ client.on("interactionCreate", async interaction => {
       const labels = {
         staff: "STAFF",
         moderacion: "MODERACIÓN",
-        owner: "OWNER",
         reclaim: "RECLAIM",
+        sorteos: "SORTEOS",
+        memes: "MEMES",
+        owner: "OWNER",
         general: "GENERAL"
       };
 
