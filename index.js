@@ -632,6 +632,7 @@ client.on("interactionCreate", async interaction => {
     }
 
     if (name === "post-staff") {
+      await syncPanelConfig();
       const questions = getGuild(interaction.guild.id).staffQuestions?.length ? getGuild(interaction.guild.id).staffQuestions : DEFAULT_STAFF_QUESTIONS;
 
       const embed = new EmbedBuilder()
@@ -651,6 +652,7 @@ client.on("interactionCreate", async interaction => {
     }
 
     if (name === "post-alter") {
+      await syncPanelConfig();
       const questions = getGuild(interaction.guild.id).alterQuestions?.length ? getGuild(interaction.guild.id).alterQuestions : DEFAULT_ALTER_QUESTIONS;
 
       const embed = new EmbedBuilder()
@@ -882,6 +884,7 @@ const server = http.createServer(async (req,res) => {
  }catch(e){console.error("Dashboard error:",e);res.writeHead(500,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"Error interno del dashboard."}))}
 });
 setInterval(() => { try { saveDB(); } catch {} }, 5000);
+setInterval(() => { syncPanelConfig().catch(() => {}); }, 5000);
 server.listen(PORT,"0.0.0.0",()=>console.log("Health server en puerto "+PORT));
 const RUN_BOT = process.env.RUN_BOT === "true" || !process.env.RENDER_SERVICE_ID;
 if (RUN_BOT) {
