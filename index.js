@@ -1388,7 +1388,10 @@ const commands = [
           { name: "Moderación", value: "moderacion" },
           { name: "Reclaim", value: "reclaim" },
           { name: "Sorteos", value: "sorteos" },
-          { name: "Owner", value: "owner" }
+          { name: "Memes", value: "memes" },
+          { name: "Owner", value: "owner" },
+          { name: "Animados", value: "animados" },
+          { name: "General", value: "general" }
         )))
     .addSubcommand(s => s
       .setName("crear")
@@ -1400,6 +1403,9 @@ const commands = [
           { name: "Moderación", value: "moderacion" },
           { name: "Owner", value: "owner" },
           { name: "Reclaim", value: "reclaim" },
+          { name: "Sorteos", value: "sorteos" },
+          { name: "Memes", value: "memes" },
+          { name: "Animados", value: "animados" },
           { name: "General", value: "general" }
         ))
       .addAttachmentOption(o => o.setName("imagen").setDescription("Imagen del emoji.").setRequired(true)))
