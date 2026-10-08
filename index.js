@@ -36,7 +36,6 @@ const DASHBOARD_FILE = path.join(DATA_DIR, "dashboard-data.json");
 const DB_VERSION = 4;
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 128 * 1024;
-const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "";
 const MAX_DASHBOARD_SESSIONS = 2;
 const DASHBOARD_OWNERS = [
   { role: "Dueño", name: "Camtrax2024" },
@@ -2460,47 +2459,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (requestPath === "/auth/password") {
-      if (req.method !== "POST") return sendJSON(res, 405, { error: "Método no permitido." });
-      if (!PANEL_PASSWORD) return sendJSON(res, 503, { error: "PANEL_PASSWORD no está configurada." });
-      const passwordIp = req.socket.remoteAddress || "password";
-      if (!rateLimit("panel-password:" + passwordIp, 8, 5 * 60_000)) {
-        return sendJSON(res, 429, { error: "Demasiados intentos. Espera unos minutos." });
-      }
-      let payload;
-      try { payload = JSON.parse(await readBody(req, 4096)); }
-      catch { return sendJSON(res, 400, { error: "Solicitud inválida." }); }
-
-      const supplied = String(payload.password || "");
-      const a = Buffer.from(supplied);
-      const b = Buffer.from(PANEL_PASSWORD);
-      const valid = a.length === b.length && crypto.timingSafeEqual(a, b);
-      if (!valid) return sendJSON(res, 401, { error: "Contraseña incorrecta." });
-
-      cleanupDashboardSessions();
-      if (sessions.size >= MAX_DASHBOARD_SESSIONS) {
-        return sendJSON(res, 429, { error: "El panel ya tiene 2 sesiones activas. Cierra una sesión antes de entrar." });
-      }
-
-      // La contraseña desbloquea y abre el panel directamente.
-      // Ya no obliga a pasar por OAuth de Discord después de introducirla.
-      const sessionId = crypto.randomUUID();
-      sessions.set(sessionId, {
-        user: {
-          id: "panel-owner",
-          username: "Panel Owner",
-          global_name: "Panel Owner"
-        },
-        guilds: [{
-          id: GUILD_ID,
-          name: client.guilds.cache.get(GUILD_ID)?.name || "Servidor configurado"
-        }],
-        csrf: crypto.randomUUID(),
-        expiresAt: Date.now() + SESSION_TTL_MS
-      });
-
-      clearPanelGateCookie(res);
-      setSessionCookie(res, sessionId);
-      return sendJSON(res, 200, { ok: true, authenticated: true });
+      return sendJSON(res, 410, { error: "El acceso por contraseña fue eliminado. Usa Discord." });
     }
 
     if (requestPath === "/auth/discord") {
