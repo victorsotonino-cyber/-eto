@@ -1,149 +1,74 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const https = require("node:https");
 const http = require("node:http");
+const crypto = require("node:crypto");
 const {
-  Client, GatewayIntentBits, Partials, EmbedBuilder, REST, Routes,
-  SlashCommandBuilder, PermissionFlagsBits, ChannelType,
-  ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle,
+  Client,
+  GatewayIntentBits,
+  Partials,
+  EmbedBuilder,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  ChannelType,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   AttachmentBuilder
 } = require("discord.js");
 
 const TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN;
 const CLIENT_ID = "1557167878183067688";
 const GUILD_ID = "1554248808194642040";
-const PORT = Number(process.env.PORT || 3000);
+const PORT = Number.isFinite(Number(process.env.PORT)) ? Number(process.env.PORT) : 3000;
 const TICKET_IMAGE_URL = process.env.TICKET_IMAGE_URL || "";
 const BOT_BRAND = "Nexus";
 const DASHBOARD_URL = "https://nexus-control-panel.onrender.com";
-const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
+const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || "";
 const PANEL_SYNC_SECRET = process.env.PANEL_SYNC_SECRET || "";
 const DISCORD_REDIRECT_URI = DASHBOARD_URL + "/auth/discord/callback";
-const sessions = new Map();
-let dashboardFile;
-
-function dashboardData() {
-  try { return fs.existsSync(dashboardFile) ? JSON.parse(fs.readFileSync(dashboardFile, "utf8")) : {}; }
-  catch { return {}; }
-}
-function saveDashboardData(d) { fs.writeFileSync(dashboardFile, JSON.stringify(d, null, 2)); }
-function parseCookies(req) { return Object.fromEntries((req.headers.cookie || "").split(";").filter(Boolean).map(x => { const i=x.indexOf("="); return [x.slice(0,i).trim(), decodeURIComponent(x.slice(i+1))]; })); }
-function sendJSON(res,status,data) { const body=JSON.stringify(data); res.writeHead(status,{"Content-Type":"application/json; charset=utf-8","Set-Cookie":"dash_session="+encodeURIComponent(data.session || "")+"; HttpOnly; Path=/; SameSite=Lax"}); res.end(body); }
-function discordRequest(url, options={}) {
-  return new Promise((resolve,reject)=>{ const u=new URL(url); const req=https.request(u,{method:options.method||"GET",headers:options.headers||{}},r=>{let b="";r.on("data",c=>b+=c);r.on("end",()=>{try{resolve({status:r.statusCode,body:JSON.parse(b)})}catch{resolve({status:r.statusCode,body:{}})}})});req.on("error",reject);if(options.body)req.write(options.body);req.end();});
-}
-function dashboardUser(req){const c=parseCookies(req);return c.dash_session?sessions.get(c.dash_session):null;}
-function guildConfig(guildId){const d=dashboardData();const g=getGuild(guildId);return {...g,openTickets:Object.values(g.tickets||{}).filter(t=>!t.closed).length};}
-
-
-
 const DATA_DIR = path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "ticket-data.json");
-dashboardFile = path.join(DATA_DIR, "dashboard.json");
+const DASHBOARD_FILE = path.join(DATA_DIR, "dashboard-data.json");
+const DB_VERSION = 4;
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const MAX_BODY_BYTES = 128 * 1024;
+
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
-function loadDB() {
-  try {
-    if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, JSON.stringify({ guilds: {} }, null, 2));
-    return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-  } catch (e) {
-    console.error("Error cargando datos:", e);
-    return { guilds: {} };
-  }
-}
+const STAFF_TEAM_ROLE_ID = "1557203534133330010";
+const REWARD_ROLE_ID = "1554248808194642048";
+const FULL_ACCESS_ROLE_ID = "1554252558359470182";
+const POST_STAFF_NOTIFY_ROLE_IDS = ["1554708798499725393", "1554708987700715531"];
 
-let db = loadDB();
+const DEFAULT_STAFF_QUESTIONS = [
+  "👤 ¿Cuál es tu nombre/usuario de Discord?",
+  "🎂 ¿Qué edad tienes?",
+  "🌎 ¿De qué país eres y cuál es tu zona horaria?",
+  "⏰ ¿Cuánto tiempo puedes estar activo diariamente?",
+  "🧠 ¿Has tenido experiencia como Staff?",
+  "🎯 ¿Por qué quieres formar parte del Staff?",
+  "🛠️ ¿Qué harías ante spam, estafas o incumplimiento de reglas?",
+  "⚖️ Si un amigo incumple las reglas, ¿lo sancionarías? ¿Por qué?",
+  "🚨 ¿Qué harías ante una discusión entre usuarios?",
+  "⭐ ¿Qué puedes aportar como Helper?"
+];
 
-function saveDB() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
-}
-
-const DEFAULT_STAFF_QUESTIONS=["👤 ¿Cuál es tu nombre/usuario de Discord?","🎂 ¿Qué edad tienes?","🌎 ¿De qué país eres y cuál es tu zona horaria?","⏰ ¿Cuánto tiempo puedes estar activo diariamente?","🧠 ¿Has tenido experiencia como Staff?","🎯 ¿Por qué quieres formar parte del Staff?","🛠️ ¿Qué harías ante spam, estafas o incumplimiento de reglas?","⚖️ Si un amigo incumple las reglas, ¿lo sancionarías? ¿Por qué?","🚨 ¿Qué harías ante una discusión entre usuarios?","⭐ ¿Qué puedes aportar como Helper?"];
-const DEFAULT_ALTER_QUESTIONS=["👤 ¿Cuál es tu usuario de Discord?","🌎 ¿De qué país eres?","🎂 ¿Qué edad tienes?","📦 ¿Qué tipo de cuentas manejas?","🎮 ¿Qué cantidad de stock tienes?","🔄 ¿Con qué frecuencia repones stock?","🎉 ¿Cuántos sorteos o drops puedes realizar al día?","🎁 ¿Qué cantidad puedes aportar semanalmente?","🛡️ ¿Cómo garantizas que las cuentas funcionan?","⭐ ¿Por qué quieres ser Alter y qué puedes aportar?"];
-
-function recordActivity(guildId, type, user, details) {
-  const g = getGuild(guildId);
-  if (!Array.isArray(g.activity)) g.activity = [];
-  g.activity.unshift({ type, user: user || "Sistema", details: details || "", at: Date.now() });
-  if (g.activity.length > 500) g.activity.length = 500;
-}
-function activityUser(user) {
-  if (!user) return "Sistema";
-  return user.tag || user.username || user.globalName || user.id || "Usuario";
-}
-function requestPanelJSON(pathname, headers={}) {
-  return new Promise((resolve, reject) => {
-    const target = new URL(DASHBOARD_URL + pathname + "?t=" + Date.now());
-    const req = https.request(target, {
-      method: "GET",
-      headers: { ...headers, "cache-control": "no-cache" }
-    }, response => {
-      let body = "";
-      response.setEncoding("utf8");
-      response.on("data", chunk => body += chunk);
-      response.on("end", () => {
-        if (response.statusCode !== 200) return reject(new Error("Panel HTTP " + response.statusCode));
-        try { resolve(JSON.parse(body)); }
-        catch { reject(new Error("El panel devolvió JSON inválido")); }
-      });
-    });
-    req.setTimeout(8000, () => req.destroy(new Error("Timeout del panel")));
-    req.on("error", reject);
-    req.end();
-  });
-}
-async function fetchPanelConfig() {
-  const paths = [];
-  if (PANEL_SYNC_SECRET) paths.push({path:"/api/sync/" + GUILD_ID, headers:{"x-panel-sync-secret":PANEL_SYNC_SECRET}});
-  paths.push({path:"/api/panel-config/" + GUILD_ID, headers:{}});
-  let lastError = null;
-  for (const item of paths) {
-    try { return await requestPanelJSON(item.path, item.headers); }
-    catch (error) { lastError = error; }
-  }
-  throw lastError || new Error("No se pudo contactar con el panel");
-}
-async function syncPanelConfig() {
-  if (!DASHBOARD_URL) return false;
-  try {
-    const remote = await fetchPanelConfig();
-    const g = getGuild(GUILD_ID);
-    for (const k of ["categoryId","staffRoleId","logsChannelId","vouchChannelId"]) {
-      if (Object.prototype.hasOwnProperty.call(remote,k)) g[k] = remote[k] || null;
-    }
-    for (const k of ["staffQuestions","alterQuestions"]) {
-      if (Array.isArray(remote[k])) {
-        g[k] = remote[k].filter(x => typeof x === "string" && x.trim()).slice(0,20);
-      }
-    }
-    if (remote.configVersion) g.configVersion = remote.configVersion;
-    saveDB();
-    console.log("Nexus: configuración del panel sincronizada (" + (g.configVersion || "sin versión") + ").");
-    return true;
-  } catch (error) {
-    console.log("Nexus: sincronización del panel pendiente:", error?.message || error);
-    return false;
-  }
-}
-
-function getGuild(guildId) {
-  if (!db.guilds[guildId]) {
-    db.guilds[guildId] = {
-      categoryId: null,
-      staffRoleId: null,
-      logsChannelId: null,
-      tickets: {},
-      warnings: {},
-      vouches: {},
-      vouchChannelId: null,
-      staffQuestions: [...DEFAULT_STAFF_QUESTIONS],
-      alterQuestions: [...DEFAULT_ALTER_QUESTIONS]
-    };
-  }
-  return db.guilds[guildId];
-}
+const DEFAULT_ALTER_QUESTIONS = [
+  "👤 ¿Cuál es tu usuario de Discord?",
+  "🌎 ¿De qué país eres?",
+  "🎂 ¿Qué edad tienes?",
+  "📦 ¿Qué tipo de cuentas manejas?",
+  "🎮 ¿Qué cantidad de stock tienes?",
+  "🔄 ¿Con qué frecuencia repones stock?",
+  "🎉 ¿Cuántos sorteos o drops puedes realizar al día?",
+  "🎁 ¿Qué cantidad puedes aportar semanalmente?",
+  "🛡️ ¿Cómo garantizas que las cuentas funcionan?",
+  "⭐ ¿Por qué quieres ser Alter y qué puedes aportar?"
+];
 
 const EMOJIS = {
   support: { id: "1555058199147708426", name: "TestSupporter" },
@@ -158,70 +83,638 @@ const COLOR = {
   orange: 0xfaa61a
 };
 
-const FULL_ACCESS_ROLE_ID = "1554252558359470182";
+function sanitizeSnowflake(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const s = String(value).trim();
+  return /^\d{17,20}$/.test(s) ? s : null;
+}
+
+function sanitizeQuestions(value, fallback) {
+  if (!Array.isArray(value)) return fallback.slice();
+  return value
+    .map(x => String(x ?? "").trim().slice(0, 300))
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+function defaultGuild() {
+  return {
+    schemaVersion: DB_VERSION,
+    configVersion: 0,
+    categoryId: null,
+    staffRoleId: null,
+    logsChannelId: null,
+    vouchChannelId: null,
+    tickets: {},
+    warnings: {},
+    vouches: {},
+    staffQuestions: DEFAULT_STAFF_QUESTIONS.slice(),
+    alterQuestions: DEFAULT_ALTER_QUESTIONS.slice(),
+    activity: [],
+    botSnapshot: null,
+    updatedAt: 0
+  };
+}
+
+function normalizeGuild(input) {
+  const g = { ...defaultGuild(), ...(input && typeof input === "object" ? input : {}) };
+
+  g.schemaVersion = DB_VERSION;
+  g.categoryId = sanitizeSnowflake(g.categoryId);
+  g.staffRoleId = sanitizeSnowflake(g.staffRoleId);
+  g.logsChannelId = sanitizeSnowflake(g.logsChannelId);
+  g.vouchChannelId = sanitizeSnowflake(g.vouchChannelId);
+  g.staffQuestions = sanitizeQuestions(g.staffQuestions, DEFAULT_STAFF_QUESTIONS);
+  g.alterQuestions = sanitizeQuestions(g.alterQuestions, DEFAULT_ALTER_QUESTIONS);
+  g.activity = Array.isArray(g.activity) ? g.activity.filter(x => x && typeof x === "object").slice(0, 500) : [];
+  g.warnings = g.warnings && typeof g.warnings === "object" && !Array.isArray(g.warnings) ? g.warnings : {};
+  g.vouches = g.vouches && typeof g.vouches === "object" && !Array.isArray(g.vouches) ? g.vouches : {};
+  g.tickets = g.tickets && typeof g.tickets === "object" && !Array.isArray(g.tickets) ? g.tickets : {};
+
+  const migratedTickets = {};
+  for (const [key, ticket] of Object.entries(g.tickets)) {
+    if (!ticket || typeof ticket !== "object" || !sanitizeSnowflake(ticket.channelId)) continue;
+    const channelId = sanitizeSnowflake(ticket.channelId);
+    migratedTickets[channelId] = {
+      channelId,
+      userId: sanitizeSnowflake(ticket.userId) || sanitizeSnowflake(key),
+      type: String(ticket.type || "support"),
+      closed: Boolean(ticket.closed),
+      claimedBy: sanitizeSnowflake(ticket.claimedBy),
+      createdAt: Number(ticket.createdAt) || Date.now(),
+      closedAt: Number(ticket.closedAt) || 0
+    };
+  }
+  g.tickets = migratedTickets;
+
+  for (const [userId, list] of Object.entries(g.warnings)) {
+    if (!Array.isArray(list)) {
+      delete g.warnings[userId];
+      continue;
+    }
+    g.warnings[userId] = list.slice(-100).map(w => ({
+      reason: String(w?.reason || "Sin razón").slice(0, 500),
+      moderatorId: sanitizeSnowflake(w?.moderatorId),
+      at: Number(w?.at) || Date.now()
+    }));
+  }
+
+  for (const [userId, count] of Object.entries(g.vouches)) {
+    const n = Number(count);
+    if (!/^\d{17,20}$/.test(userId) || !Number.isFinite(n) || n < 0) delete g.vouches[userId];
+    else g.vouches[userId] = Math.floor(n);
+  }
+
+  if (g.botSnapshot && typeof g.botSnapshot === "object") {
+    g.botSnapshot = {
+      serverName: String(g.botSnapshot.serverName || "").slice(0, 100),
+      botOnline: Boolean(g.botSnapshot.botOnline),
+      syncedAt: Number(g.botSnapshot.syncedAt) || 0,
+      openTickets: Math.max(0, Number(g.botSnapshot.openTickets) || 0),
+      warnings: Math.max(0, Number(g.botSnapshot.warnings) || 0),
+      vouches: Math.max(0, Number(g.botSnapshot.vouches) || 0)
+    };
+  } else {
+    g.botSnapshot = null;
+  }
+
+  g.configVersion = Math.max(0, Number(g.configVersion) || 0);
+  g.updatedAt = Math.max(0, Number(g.updatedAt) || 0);
+  return g;
+}
+
+function defaultDB() {
+  return {
+    version: DB_VERSION,
+    updatedAt: 0,
+    guilds: {}
+  };
+}
+
+function atomicWriteJSON(file, data) {
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = file + ".tmp-" + process.pid + "-" + Date.now();
+  const backup = file + ".bak";
+  const json = JSON.stringify(data, null, 2);
+
+  try {
+    const fd = fs.openSync(tmp, "w");
+    try {
+      fs.writeFileSync(fd, json, "utf8");
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    if (fs.existsSync(file)) fs.copyFileSync(file, backup);
+    fs.renameSync(tmp, file);
+  } catch (error) {
+    try { fs.rmSync(tmp, { force: true }); } catch {}
+    throw error;
+  }
+}
+
+function loadJSON(file, fallback) {
+  const backup = file + ".bak";
+  const candidates = [
+    { file, primary: true },
+    { file: backup, primary: false }
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      if (!fs.existsSync(candidate.file)) continue;
+      const raw = JSON.parse(fs.readFileSync(candidate.file, "utf8"));
+      return { data: raw, recovered: !candidate.primary };
+    } catch (error) {
+      if (candidate.primary) {
+        try {
+          const corrupt = file + ".corrupt-" + Date.now();
+          if (fs.existsSync(file)) fs.copyFileSync(file, corrupt);
+        } catch {}
+        console.error("Nexus: archivo de datos principal ilegible:", error.message);
+      }
+    }
+  }
+
+  return { data: fallback, recovered: false };
+}
+
+function normalizeDB(raw) {
+  const source = raw && typeof raw === "object" ? raw : defaultDB();
+  const result = {
+    version: DB_VERSION,
+    updatedAt: Number(source.updatedAt) || 0,
+    guilds: {}
+  };
+
+  if (source.guilds && typeof source.guilds === "object") {
+    for (const [guildId, guild] of Object.entries(source.guilds)) {
+      if (/^\d{17,20}$/.test(guildId)) result.guilds[guildId] = normalizeGuild(guild);
+    }
+  }
+  return result;
+}
+
+let db;
+let dbDirty = false;
+let dbSaveTimer = null;
+
+function loadDB() {
+  const loaded = loadJSON(DATA_FILE, defaultDB());
+  const normalized = normalizeDB(loaded.data);
+  if (loaded.recovered) {
+    try { atomicWriteJSON(DATA_FILE, normalized); }
+    catch (e) { console.error("Nexus: no pude reescribir la copia recuperada:", e.message); }
+  }
+  return normalized;
+}
+
+function saveDBNow(reason) {
+  db.updatedAt = Date.now();
+  atomicWriteJSON(DATA_FILE, db);
+  dbDirty = false;
+  if (reason) console.log("Nexus: datos guardados (" + reason + ").");
+}
+
+function scheduleSaveDB(reason) {
+  dbDirty = true;
+  if (dbSaveTimer) return;
+  dbSaveTimer = setTimeout(() => {
+    dbSaveTimer = null;
+    if (!dbDirty) return;
+    try { saveDBNow(reason || "debounced"); }
+    catch (error) { console.error("Nexus: error guardando datos:", error); }
+  }, 350);
+}
+
+function saveDB(reason) {
+  try {
+    if (dbSaveTimer) {
+      clearTimeout(dbSaveTimer);
+      dbSaveTimer = null;
+    }
+    saveDBNow(reason || "immediate");
+  } catch (error) {
+    dbDirty = true;
+    console.error("Nexus: error guardando datos:", error);
+  }
+}
+
+db = loadDB();
+
+const dashboardLoaded = loadJSON(DASHBOARD_FILE, defaultDB());
+let dashboardDB = normalizeDB(dashboardLoaded.data);
+
+function saveDashboardDBNow(reason) {
+  dashboardDB.updatedAt = Date.now();
+  atomicWriteJSON(DASHBOARD_FILE, dashboardDB);
+  if (reason) console.log("Nexus: dashboard guardado (" + reason + ").");
+}
+
+function getGuild(guildId, store = db) {
+  if (!store.guilds[guildId]) store.guilds[guildId] = defaultGuild();
+  store.guilds[guildId] = normalizeGuild(store.guilds[guildId]);
+  return store.guilds[guildId];
+}
+
+function touchConfig(guild) {
+  const now = Date.now();
+  guild.configVersion = Math.max(now, Number(guild.configVersion || 0) + 1);
+  guild.updatedAt = now;
+}
+
+function recordActivity(guildId, type, user, details) {
+  const g = getGuild(guildId);
+  g.activity.unshift({
+    type: String(type || "Actividad").slice(0, 80),
+    user: String(user || "Sistema").slice(0, 120),
+    details: String(details || "").slice(0, 300),
+    at: Date.now()
+  });
+  if (g.activity.length > 500) g.activity.length = 500;
+  db.guilds[guildId] = g;
+  scheduleSaveDB("actividad");
+}
+
+function activityUser(user) {
+  if (!user) return "Sistema";
+  return user.tag || user.username || user.globalName || user.id || "Usuario";
+}
+
+function calculateStats(g) {
+  return {
+    openTickets: Object.values(g.tickets || {}).filter(t => !t.closed).length,
+    warnings: Object.values(g.warnings || {}).reduce((n, list) => n + (Array.isArray(list) ? list.length : 0), 0),
+    vouches: Object.values(g.vouches || {}).reduce((n, value) => n + Number(value || 0), 0)
+  };
+}
+
+function publicGuildConfig(store, guildId) {
+  const g = getGuild(guildId, store);
+  const localStats = calculateStats(g);
+  const snapshot = g.botSnapshot || {};
+  return {
+    categoryId: g.categoryId,
+    staffRoleId: g.staffRoleId,
+    logsChannelId: g.logsChannelId,
+    vouchChannelId: g.vouchChannelId,
+    staffQuestions: g.staffQuestions.slice(0, 20),
+    alterQuestions: g.alterQuestions.slice(0, 20),
+    configVersion: g.configVersion || 0,
+    activity: g.activity.slice(0, 500),
+    openTickets: Number.isFinite(Number(snapshot.openTickets)) ? Number(snapshot.openTickets) : localStats.openTickets,
+    warnings: Number.isFinite(Number(snapshot.warnings)) ? Number(snapshot.warnings) : localStats.warnings,
+    vouchTotal: Number.isFinite(Number(snapshot.vouches)) ? Number(snapshot.vouches) : localStats.vouches,
+    serverName: snapshot.serverName || null,
+    botOnline: Boolean(snapshot.botOnline),
+    lastBotSyncAt: Number(snapshot.syncedAt) || 0
+  };
+}
+
+async function requestPanelJSON(pathname, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeout || 8000);
+  try {
+    const response = await fetch(DASHBOARD_URL + pathname, {
+      method: options.method || "GET",
+      headers: {
+        "cache-control": "no-cache",
+        ...(options.headers || {})
+      },
+      body: options.body,
+      signal: controller.signal
+    });
+    const body = await response.text();
+    let json = {};
+    try { json = body ? JSON.parse(body) : {}; }
+    catch { throw new Error("Panel devolvió JSON inválido"); }
+    if (!response.ok) throw new Error("Panel HTTP " + response.status + (json.error ? ": " + json.error : ""));
+    return json;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function buildPanelPayload() {
+  const g = getGuild(GUILD_ID);
+  const stats = calculateStats(g);
+  const guild = client.guilds.cache.get(GUILD_ID);
+  return {
+    configVersion: g.configVersion || 0,
+    categoryId: g.categoryId,
+    staffRoleId: g.staffRoleId,
+    logsChannelId: g.logsChannelId,
+    vouchChannelId: g.vouchChannelId,
+    staffQuestions: g.staffQuestions.slice(0, 20),
+    alterQuestions: g.alterQuestions.slice(0, 20),
+    activity: g.activity.slice(0, 200),
+    serverName: guild?.name || "",
+    botOnline: Boolean(client.user),
+    syncedAt: Date.now(),
+    openTickets: stats.openTickets,
+    warnings: stats.warnings,
+    vouches: stats.vouches
+  };
+}
+
+let syncInFlight = null;
+let lastPanelSyncErrorAt = 0;
+
+async function pushPanelState() {
+  if (!PANEL_SYNC_SECRET || !client.isReady()) return false;
+  try {
+    await requestPanelJSON("/api/sync/" + GUILD_ID, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-panel-sync-secret": PANEL_SYNC_SECRET
+      },
+      body: JSON.stringify(buildPanelPayload())
+    });
+    return true;
+  } catch (error) {
+    const now = Date.now();
+    if (now - lastPanelSyncErrorAt > 30000) {
+      console.log("Nexus: no pude enviar el estado al panel:", error.message);
+      lastPanelSyncErrorAt = now;
+    }
+    return false;
+  }
+}
+
+async function syncPanelConfig() {
+  if (!DASHBOARD_URL || !PANEL_SYNC_SECRET || !client.isReady()) return false;
+  if (syncInFlight) return syncInFlight;
+
+  syncInFlight = (async () => {
+    try {
+      const remote = await requestPanelJSON("/api/sync/" + GUILD_ID, {
+        headers: { "x-panel-sync-secret": PANEL_SYNC_SECRET }
+      });
+
+      const local = getGuild(GUILD_ID);
+      const remoteVersion = Math.max(0, Number(remote.configVersion) || 0);
+      const localVersion = Math.max(0, Number(local.configVersion) || 0);
+
+      if (remoteVersion > localVersion || localVersion === 0) {
+        local.categoryId = sanitizeSnowflake(remote.categoryId);
+        local.staffRoleId = sanitizeSnowflake(remote.staffRoleId);
+        local.logsChannelId = sanitizeSnowflake(remote.logsChannelId);
+        local.vouchChannelId = sanitizeSnowflake(remote.vouchChannelId);
+        local.staffQuestions = sanitizeQuestions(remote.staffQuestions, DEFAULT_STAFF_QUESTIONS);
+        local.alterQuestions = sanitizeQuestions(remote.alterQuestions, DEFAULT_ALTER_QUESTIONS);
+        local.configVersion = remoteVersion;
+        local.updatedAt = Date.now();
+        db.guilds[GUILD_ID] = local;
+        saveDB("configuración del panel");
+        console.log("Nexus: configuración del panel aplicada. Versión " + remoteVersion + ".");
+      }
+
+      if (localVersion > remoteVersion || remoteVersion === 0) await pushPanelState();
+      return true;
+    } catch (error) {
+      const now = Date.now();
+      if (now - lastPanelSyncErrorAt > 30000) {
+        console.log("Nexus: sincronización del panel pendiente:", error.message);
+        lastPanelSyncErrorAt = now;
+      }
+      return false;
+    } finally {
+      syncInFlight = null;
+    }
+  })();
+
+  return syncInFlight;
+}
+
+function parseCookies(req) {
+  return Object.fromEntries(
+    (req.headers.cookie || "")
+      .split(";")
+      .filter(Boolean)
+      .map(part => {
+        const i = part.indexOf("=");
+        return [part.slice(0, i).trim(), decodeURIComponent(part.slice(i + 1))];
+      })
+  );
+}
+
+const sessions = new Map();
+
+function dashboardUser(req) {
+  const cookies = parseCookies(req);
+  const id = cookies.dash_session;
+  if (!id) return null;
+  const session = sessions.get(id);
+  if (!session) return null;
+  if (session.expiresAt <= Date.now()) {
+    sessions.delete(id);
+    return null;
+  }
+  return session;
+}
+
+function isSameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  return origin === DASHBOARD_URL;
+}
+
+function sendJSON(res, status, data, extraHeaders = {}) {
+  const body = JSON.stringify(data);
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    ...extraHeaders
+  });
+  res.end(body);
+}
+
+function redirect(res, location, extraHeaders = {}) {
+  res.writeHead(302, {
+    Location: location,
+    "Cache-Control": "no-store",
+    ...extraHeaders
+  });
+  res.end();
+}
+
+async function readBody(req, maxBytes = MAX_BODY_BYTES) {
+  const chunks = [];
+  let total = 0;
+
+  return new Promise((resolve, reject) => {
+    req.on("data", chunk => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        reject(new Error("Payload demasiado grande."));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
+function requireSession(req, res) {
+  const session = dashboardUser(req);
+  if (!session) {
+    sendJSON(res, 401, { error: "No autenticado" });
+    return null;
+  }
+  session.expiresAt = Date.now() + SESSION_TTL_MS;
+  return session;
+}
+
+function requireCSRF(req, res, session) {
+  if (!isSameOrigin(req) || req.headers["x-csrf-token"] !== session.csrf) {
+    sendJSON(res, 403, { error: "Solicitud no autorizada." });
+    return false;
+  }
+  return true;
+}
+
+function setSessionCookie(res, id) {
+  res.setHeader(
+    "Set-Cookie",
+    "dash_session=" + encodeURIComponent(id) +
+      "; HttpOnly; Path=/; SameSite=Lax; Secure; Max-Age=" + Math.floor(SESSION_TTL_MS / 1000)
+  );
+}
+
+function clearSessionCookie(res) {
+  res.setHeader("Set-Cookie", "dash_session=; HttpOnly; Path=/; SameSite=Lax; Secure; Max-Age=0");
+}
+
+function discordRequest(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const transport = target.protocol === "https:" ? require("node:https") : require("node:http");
+    const req = transport.request(
+      target,
+      {
+        method: options.method || "GET",
+        headers: options.headers || {},
+        timeout: options.timeout || 10000
+      },
+      response => {
+        let body = "";
+        response.setEncoding("utf8");
+        response.on("data", chunk => body += chunk);
+        response.on("end", () => {
+          let parsed = {};
+          try { parsed = body ? JSON.parse(body) : {}; }
+          catch { parsed = { raw: body }; }
+          resolve({ status: response.statusCode || 0, body: parsed });
+        });
+      }
+    );
+    req.on("timeout", () => req.destroy(new Error("Discord API timeout")));
+    req.on("error", reject);
+    if (options.body) req.write(options.body);
+    req.end();
+  });
+}
+
+function channelMention(id) {
+  return id ? "<#" + id + ">" : "No configurado";
+}
+
+function roleMention(id) {
+  return id ? "<@&" + id + ">" : "No configurado";
+}
 
 function isStaff(member) {
   if (!member) return false;
-  if (member.roles.cache.has(FULL_ACCESS_ROLE_ID)) return true;
+  if (member.roles?.cache?.has(FULL_ACCESS_ROLE_ID)) return true;
   const gd = getGuild(member.guild.id);
   return member.permissions.has(PermissionFlagsBits.Administrator) ||
     member.permissions.has(PermissionFlagsBits.ManageGuild) ||
     member.permissions.has(PermissionFlagsBits.ManageChannels) ||
-    (gd.staffRoleId && member.roles.cache.has(gd.staffRoleId));
+    (gd.staffRoleId ? member.roles.cache.has(gd.staffRoleId) : false);
 }
 
 function ticketByChannel(guildId, channelId) {
   return Object.values(getGuild(guildId).tickets).find(t => t.channelId === channelId) || null;
 }
 
+function ticketOpenByUser(guildId, userId) {
+  return Object.values(getGuild(guildId).tickets).filter(t => t.userId === userId && !t.closed);
+}
+
+function ticketPrefix(type) {
+  return ({
+    support: "soporte",
+    rewards: "rewards",
+    applications: "postulaciones",
+    ally: "ally"
+  })[type] || "ticket";
+}
+
 function panelEmbed() {
-  const e = new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setColor(COLOR.purple)
     .setTitle("🎫 • Sistema de Tickets")
     .setDescription(
       "🇪🇸 **Español**\n" +
-      "¿Necesitas ayuda, tienes alguna consulta o quieres reclamar una recompensa?\n" +
-      "Abre un ticket seleccionando la categoría que corresponda a tu solicitud.\n\n" +
-      "Nuestro equipo de **Staff** revisará tu ticket y te atenderá lo antes posible.\n" +
-      "Por favor, proporciona toda la información necesaria para que podamos ayudarte rápidamente.\n\n" +
+      "¿Necesitas ayuda, quieres reclamar una recompensa o enviar una postulación?\n" +
+      "Selecciona la categoría que corresponda.\n\n" +
       "🇬🇧 **English**\n" +
-      "Need help, have a question, or want to claim a reward?\n" +
-      "Open a ticket by selecting the category that best matches your request.\n\n" +
-      "Our Staff Team will review your ticket and assist you as soon as possible.\n" +
-      "Please provide all the necessary information so we can help you quickly.\n\n" +
+      "Need help, want to claim a reward, or submit an application?\n" +
+      "Select the category that matches your request.\n\n" +
       "👇 **Selecciona una categoría para comenzar.**\n" +
       "👇 **Select a category to get started.**"
     )
     .setFooter({ text: BOT_BRAND + " • Sistema de Tickets" });
-  if (TICKET_IMAGE_URL) e.setImage(TICKET_IMAGE_URL);
-  return e;
+
+  if (TICKET_IMAGE_URL) embed.setImage(TICKET_IMAGE_URL);
+  return embed;
 }
 
 function panelComponents() {
-  return [new ActionRowBuilder().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId("ticket_create")
-      .setPlaceholder("Haz una selección • Select a category")
-      .addOptions(
-        { label: "Soporte", description: "Obtén ayuda del staff.", value: "support", emoji: EMOJIS.support },
-        { label: "Rewards", description: "Reclama tu recompensa.", value: "rewards", emoji: EMOJIS.rewards },
-        { label: "Postulaciones", description: "Envía una postulación al equipo.", value: "applications", emoji: "📝" },
-        { label: "Ally", description: "Cualquier otra consulta.", value: "ally", emoji: "🤝" }
-      )
-  )];
+  return [
+    new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId("ticket_create")
+        .setPlaceholder("Haz una selección • Select a category")
+        .addOptions(
+          { label: "Soporte", description: "Obtén ayuda del staff.", value: "support", emoji: EMOJIS.support },
+          { label: "Rewards", description: "Reclama tu recompensa.", value: "rewards", emoji: EMOJIS.rewards },
+          { label: "Postulaciones", description: "Envía una postulación al equipo.", value: "applications", emoji: "📝" },
+          { label: "Ally", description: "Cualquier otra consulta.", value: "ally", emoji: "🤝" }
+        )
+    )
+  ];
 }
 
 function ticketButtons(closed) {
-  if (closed) return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("ticket_reopen").setLabel("Reabrir").setEmoji("🔓").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId("ticket_transcript").setLabel("Transcript").setEmoji("📄").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId("ticket_delete").setLabel("Eliminar").setEmoji("🗑️").setStyle(ButtonStyle.Danger)
-  );
+  if (closed) {
+    return new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId("ticket_reopen").setLabel("Reabrir").setEmoji("🔓").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId("ticket_transcript").setLabel("Transcript").setEmoji("📄").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId("ticket_delete").setLabel("Eliminar").setEmoji("🗑️").setStyle(ButtonStyle.Danger)
+    );
+  }
 
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("ticket_close").setLabel("Cerrar ticket").setEmoji({ id: "1557199596382584842", name: "demongirl" }).setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId("ticket_claim").setLabel("Reclamar").setEmoji({ id: "1557199346141761687", name: "pentagram", animated: true }).setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId("ticket_transcript").setLabel("Transcript").setEmoji("📄").setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder()
+      .setCustomId("ticket_close")
+      .setLabel("Cerrar ticket")
+      .setEmoji({ id: "1557199596382584842", name: "demongirl" })
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId("ticket_claim")
+      .setLabel("Reclamar")
+      .setEmoji({ id: "1557199346141761687", name: "pentagram", animated: true })
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId("ticket_transcript")
+      .setLabel("Transcript")
+      .setEmoji("📄")
+      .setStyle(ButtonStyle.Secondary)
   );
 }
 
@@ -233,8 +726,8 @@ function welcomeEmbed(user, type) {
     .setDescription(
       "Hola " + user + ", gracias por abrir tu ticket.\n\n" +
       "📌 **Categoría:** " + (names[type] || type) + "\n" +
-      "📝 Explica tu problema con el mayor detalle posible.\n\n" +
-      "Un miembro del Staff te atenderá en cuanto pueda."
+      "📝 Explica tu solicitud con el mayor detalle posible.\n\n" +
+      "Un miembro del Staff Team te atenderá en cuanto pueda."
     )
     .setFooter({ text: BOT_BRAND + " • Sistema de Tickets" })
     .setTimestamp();
@@ -243,29 +736,61 @@ function welcomeEmbed(user, type) {
 async function sendLog(guild, embed) {
   const id = getGuild(guild.id).logsChannelId;
   if (!id) return;
-  const ch = await guild.channels.fetch(id).catch(() => null);
-  if (ch && ch.isTextBased()) await ch.send({ embeds: [embed] }).catch(() => {});
+  const channel = await guild.channels.fetch(id).catch(() => null);
+  if (channel?.isTextBased()) await channel.send({ embeds: [embed] }).catch(() => {});
 }
 
+function uniquePermissionOverwrites(items) {
+  const seen = new Set();
+  return items.filter(item => {
+    if (!item?.id || seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
+const ticketCreationLocks = new Set();
+
 async function createTicket(guild, user, type) {
-  const gd = getGuild(guild.id);
-  const openTickets = Object.values(gd.tickets).filter(t => t.userId === user.id && !t.closed);
-  if (openTickets.length >= 2) return { limit: true, channelIds: openTickets.map(t => t.channelId) };
+  if (!guild || !user) return { error: "Datos de ticket inválidos." };
+  const lockKey = guild.id + ":" + user.id;
+  if (ticketCreationLocks.has(lockKey)) return { busy: true };
 
-  const category = gd.categoryId ? guild.channels.cache.get(gd.categoryId) : null;
-  const staffRole = gd.staffRoleId ? guild.roles.cache.get(gd.staffRoleId) : null;
-  const fullAccessRole = guild.roles.cache.get(FULL_ACCESS_ROLE_ID);
-  const displayName = user.globalName || user.username || "usuario";
-  const safe = displayName.toLowerCase().replace(/[^a-z0-9-_]/g, "").slice(0, 18) || "usuario";
-  const ticketNames = { support: "soporte", rewards: "rewards", applications: "postulaciones", ally: "ally" };
-  const ticketPrefix = ticketNames[type] || "ticket";
+  ticketCreationLocks.add(lockKey);
+  try {
+    const gd = getGuild(guild.id);
+    const open = ticketOpenByUser(guild.id, user.id);
 
-  const channel = await guild.channels.create({
-    name: ticketPrefix + "-" + safe,
-    type: ChannelType.GuildText,
-    parent: category && category.type === ChannelType.GuildCategory ? category.id : undefined,
-    topic: "Ticket de " + user.tag + " • " + type,
-    permissionOverwrites: [
+    for (const existing of open) {
+      const exists = await guild.channels.fetch(existing.channelId).catch(() => null);
+      if (!exists) {
+        delete gd.tickets[existing.channelId];
+        scheduleSaveDB("limpieza de ticket huérfano");
+      }
+    }
+
+    const openAfterCleanup = ticketOpenByUser(guild.id, user.id);
+    if (openAfterCleanup.length >= 2) {
+      return { limit: true, channelIds: openAfterCleanup.map(t => t.channelId) };
+    }
+
+    const category = gd.categoryId ? await guild.channels.fetch(gd.categoryId).catch(() => null) : null;
+    const staffRole = gd.staffRoleId ? guild.roles.cache.get(gd.staffRoleId) : null;
+    const staffTeam = guild.roles.cache.get(STAFF_TEAM_ROLE_ID);
+    const rewardRole = guild.roles.cache.get(REWARD_ROLE_ID);
+    const fullAccess = guild.roles.cache.get(FULL_ACCESS_ROLE_ID);
+
+    const username = String(user.username || "usuario").toLowerCase().replace(/[^a-z0-9-_]/g, "");
+    const safeUser = username.slice(0, 22) || "usuario";
+    const prefix = ticketPrefix(type);
+    let channelName = prefix + "-" + safeUser;
+    let suffix = 2;
+    while (guild.channels.cache.some(ch => ch.name === channelName)) {
+      channelName = (prefix + "-" + safeUser).slice(0, 95) + "-" + suffix++;
+      if (suffix > 20) break;
+    }
+
+    const overwrites = uniquePermissionOverwrites([
       { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
       {
         id: user.id,
@@ -285,43 +810,91 @@ async function createTicket(guild, user, type) {
           PermissionFlagsBits.ManageMessages
         ]
       }] : []),
-      ...(fullAccessRole ? [{
-        id: fullAccessRole.id,
+      ...(staffTeam ? [{
+        id: staffTeam.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.ManageMessages
+        ]
+      }] : []),
+      ...(type === "rewards" && rewardRole ? [{
+        id: rewardRole.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.ManageMessages
+        ]
+      }] : []),
+      ...(fullAccess ? [{
+        id: fullAccess.id,
         allow: [
           PermissionFlagsBits.ViewChannel,
           PermissionFlagsBits.SendMessages,
           PermissionFlagsBits.ReadMessageHistory,
           PermissionFlagsBits.ManageMessages,
-          PermissionFlagsBits.AttachFiles
+          PermissionFlagsBits.AttachFiles,
+          PermissionFlagsBits.ManageChannels
         ]
       }] : [])
-    ]
-  });
+    ]);
 
-  gd.tickets[user.id] = {
-    channelId: channel.id,
-    userId: user.id,
-    type,
-    closed: false,
-    claimedBy: null,
-    createdAt: Date.now()
-  };
-  saveDB();
+    const channel = await guild.channels.create({
+      name: channelName,
+      type: ChannelType.GuildText,
+      parent: category?.type === ChannelType.GuildCategory ? category.id : undefined,
+      topic: "Ticket de " + user.tag + " • " + type,
+      permissionOverwrites: overwrites
+    });
 
-  await channel.send({
-    content: user + " <@&" + "1557203534133330010" + ">" + (type === "rewards" ? " <@&" + "1554248808194642048" + ">" : ""),
-    embeds: [welcomeEmbed(user, type)],
-    components: [ticketButtons(false)]
-  });
+    gd.tickets[channel.id] = {
+      channelId: channel.id,
+      userId: user.id,
+      type,
+      closed: false,
+      claimedBy: null,
+      createdAt: Date.now(),
+      closedAt: 0
+    };
+    db.guilds[guild.id] = gd;
+    saveDB("ticket creado");
 
-  await sendLog(guild, new EmbedBuilder()
-    .setColor(COLOR.green)
-    .setTitle("🎫 Ticket creado")
-    .setDescription("**Usuario:** " + user + "\n**Canal:** " + channel + "\n**Categoría:** " + type)
-    .setTimestamp()
-  );
+    const mentions = [user.toString(), "<@&" + STAFF_TEAM_ROLE_ID + ">"];
+    if (type === "rewards") mentions.push("<@&" + REWARD_ROLE_ID + ">");
 
-  return { channel };
+    try {
+      await channel.send({
+        content: mentions.join(" "),
+        embeds: [welcomeEmbed(user, type)],
+        components: [ticketButtons(false)]
+      });
+    } catch (error) {
+      delete gd.tickets[channel.id];
+      saveDB("rollback de ticket");
+      await channel.delete().catch(() => {});
+      throw new Error("No pude enviar el mensaje inicial del ticket: " + error.message);
+    }
+
+    await sendLog(
+      guild,
+      new EmbedBuilder()
+        .setColor(COLOR.green)
+        .setTitle("🎫 Ticket creado")
+        .setDescription(
+          "**Usuario:** " + user + "\n" +
+          "**Canal:** " + channel + "\n" +
+          "**Categoría:** " + type
+        )
+        .setTimestamp()
+    );
+
+    recordActivity(guild.id, "Ticket creado", activityUser(user), "#" + channel.name + " • " + type);
+    return { channel };
+  } finally {
+    ticketCreationLocks.delete(lockKey);
+  }
 }
 
 async function makeTranscript(channel) {
@@ -329,17 +902,23 @@ async function makeTranscript(channel) {
   let before;
 
   for (let page = 0; page < 20; page++) {
-    const batch = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) }).catch(() => null);
-    if (!batch || !batch.size) break;
+    const batch = await channel.messages.fetch({
+      limit: 100,
+      ...(before ? { before } : {})
+    }).catch(() => null);
+
+    if (!batch?.size) break;
     messages.push(...batch.values());
     before = batch.last().id;
     if (batch.size < 100) break;
   }
 
   messages.reverse();
-  const lines = messages.map(m => {
-    const files = [...m.attachments.values()].map(a => a.url).join(" ");
-    return "[" + new Date(m.createdTimestamp).toISOString() + "] " + m.author.tag + ": " + (m.content || "") + (files ? " " + files : "");
+  const lines = messages.map(message => {
+    const files = [...message.attachments.values()].map(a => a.url).join(" ");
+    const content = String(message.content || "").replace(/\r?\n/g, " ");
+    return "[" + new Date(message.createdTimestamp).toISOString() + "] " +
+      message.author.tag + ": " + content + (files ? " " + files : "");
   });
 
   return Buffer.from(lines.join("\n") || "Sin mensajes.", "utf8");
@@ -348,89 +927,286 @@ async function makeTranscript(channel) {
 async function closeTicket(channel, actor) {
   const ticket = ticketByChannel(channel.guild.id, channel.id);
   if (!ticket) return false;
+
   ticket.closed = true;
-  saveDB();
-  await channel.permissionOverwrites.edit(ticket.userId, { ViewChannel: false, SendMessages: false }).catch(() => {});
+  ticket.closedAt = Date.now();
+  saveDB("ticket cerrado");
+
+  await channel.permissionOverwrites.edit(ticket.userId, {
+    ViewChannel: false,
+    SendMessages: false
+  }).catch(() => {});
+
   await channel.send({
-    embeds: [new EmbedBuilder().setColor(COLOR.red).setTitle("🔒 Ticket cerrado").setDescription("Cerrado por " + actor + ".").setTimestamp()],
+    embeds: [
+      new EmbedBuilder()
+        .setColor(COLOR.red)
+        .setTitle("🔒 Ticket cerrado")
+        .setDescription("Cerrado por " + actor + ". Puedes usar **Reabrir** si necesitas volver a abrirlo.")
+        .setTimestamp()
+    ],
     components: [ticketButtons(true)]
-  });
+  }).catch(() => {});
+
+  await sendLog(
+    channel.guild,
+    new EmbedBuilder()
+      .setColor(COLOR.red)
+      .setTitle("🔒 Ticket cerrado")
+      .setDescription("**Canal:** " + channel + "\n**Por:** " + actor)
+      .setTimestamp()
+  );
+
+  recordActivity(channel.guild.id, "Ticket cerrado", activityUser(actor), "#" + channel.name);
   return true;
 }
 
 async function reopenTicket(channel, actor) {
   const ticket = ticketByChannel(channel.guild.id, channel.id);
   if (!ticket) return false;
+
   ticket.closed = false;
-  saveDB();
-  await channel.permissionOverwrites.edit(ticket.userId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }).catch(() => {});
+  ticket.closedAt = 0;
+  saveDB("ticket reabierto");
+
+  await channel.permissionOverwrites.edit(ticket.userId, {
+    ViewChannel: true,
+    SendMessages: true,
+    ReadMessageHistory: true
+  }).catch(() => {});
+
   await channel.send({
-    embeds: [new EmbedBuilder().setColor(COLOR.green).setTitle("🔓 Ticket reabierto").setDescription("Reabierto por " + actor + ".").setTimestamp()],
+    embeds: [
+      new EmbedBuilder()
+        .setColor(COLOR.green)
+        .setTitle("🔓 Ticket reabierto")
+        .setDescription("Reabierto por " + actor + ".")
+        .setTimestamp()
+    ],
     components: [ticketButtons(false)]
-  });
+  }).catch(() => {});
+
+  await sendLog(
+    channel.guild,
+    new EmbedBuilder()
+      .setColor(COLOR.green)
+      .setTitle("🔓 Ticket reabierto")
+      .setDescription("**Canal:** " + channel + "\n**Por:** " + actor)
+      .setTimestamp()
+  );
+
+  recordActivity(channel.guild.id, "Ticket reabierto", activityUser(actor), "#" + channel.name);
   return true;
 }
 
 const commands = [
-  new SlashCommandBuilder().setName("ticket").setDescription("Sistema completo de tickets.")
-    .addSubcommand(s => s.setName("panel").setDescription("Publica el panel de tickets.")
-      .addChannelOption(o => o.setName("canal").setDescription("Canal donde se publicará.").addChannelTypes(ChannelType.GuildText)))
-    .addSubcommand(s => s.setName("setup").setDescription("Configura categoría, staff y logs.")
-      .addChannelOption(o => o.setName("categoria").setDescription("Categoría de tickets.").addChannelTypes(ChannelType.GuildCategory))
+  new SlashCommandBuilder()
+    .setName("ticket")
+    .setDescription("Sistema completo de tickets.")
+    .addSubcommand(s => s
+      .setName("panel")
+      .setDescription("Publica el panel de tickets.")
+      .addChannelOption(o => o
+        .setName("canal")
+        .setDescription("Canal donde se publicará.")
+        .addChannelTypes(ChannelType.GuildText)))
+    .addSubcommand(s => s
+      .setName("setup")
+      .setDescription("Configura categoría, staff y logs.")
+      .addChannelOption(o => o
+        .setName("categoria")
+        .setDescription("Categoría de tickets.")
+        .addChannelTypes(ChannelType.GuildCategory))
       .addRoleOption(o => o.setName("staff").setDescription("Rol que verá los tickets."))
-      .addChannelOption(o => o.setName("logs").setDescription("Canal de logs.").addChannelTypes(ChannelType.GuildText)))
+      .addChannelOption(o => o
+        .setName("logs")
+        .setDescription("Canal de logs.")
+        .addChannelTypes(ChannelType.GuildText)))
     .addSubcommand(s => s.setName("close").setDescription("Cierra el ticket actual."))
     .addSubcommand(s => s.setName("reopen").setDescription("Reabre el ticket actual."))
     .addSubcommand(s => s.setName("delete").setDescription("Elimina el ticket actual."))
     .addSubcommand(s => s.setName("claim").setDescription("Reclama el ticket actual."))
     .addSubcommand(s => s.setName("unclaim").setDescription("Libera el ticket actual."))
-    .addSubcommand(s => s.setName("add").setDescription("Añade un usuario al ticket.").addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)))
-    .addSubcommand(s => s.setName("remove").setDescription("Quita un usuario del ticket.").addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)))
-    .addSubcommand(s => s.setName("rename").setDescription("Cambia el nombre del ticket.").addStringOption(o => o.setName("nombre").setDescription("Nuevo nombre.").setRequired(true)))
+    .addSubcommand(s => s
+      .setName("add")
+      .setDescription("Añade un usuario al ticket.")
+      .addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)))
+    .addSubcommand(s => s
+      .setName("remove")
+      .setDescription("Quita un usuario del ticket.")
+      .addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)))
+    .addSubcommand(s => s
+      .setName("rename")
+      .setDescription("Cambia el nombre del ticket.")
+      .addStringOption(o => o.setName("nombre").setDescription("Nuevo nombre.").setRequired(true)))
     .addSubcommand(s => s.setName("transcript").setDescription("Genera un transcript."))
     .addSubcommand(s => s.setName("list").setDescription("Muestra los tickets abiertos.")),
 
-  new SlashCommandBuilder().setName("modlog").setDescription("Configura los logs de moderación.")
-    .addSubcommand(s => s.setName("set").setDescription("Configura el canal.").addChannelOption(o => o.setName("canal").setDescription("Canal de logs.").addChannelTypes(ChannelType.GuildText).setRequired(true)))
+  new SlashCommandBuilder()
+    .setName("modlog")
+    .setDescription("Configura los logs de moderación.")
+    .addSubcommand(s => s
+      .setName("set")
+      .setDescription("Configura el canal.")
+      .addChannelOption(o => o
+        .setName("canal")
+        .setDescription("Canal de logs.")
+        .addChannelTypes(ChannelType.GuildText)
+        .setRequired(true)))
     .addSubcommand(s => s.setName("off").setDescription("Desactiva los logs.")),
 
-  new SlashCommandBuilder().setName("ban").setDescription("Banea a un usuario.").addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)).addStringOption(o => o.setName("razon").setDescription("Razón.")),
-  new SlashCommandBuilder().setName("unban").setDescription("Quita el ban.").addStringOption(o => o.setName("usuario").setDescription("ID.").setRequired(true)),
-  new SlashCommandBuilder().setName("kick").setDescription("Expulsa a un usuario.").addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)).addStringOption(o => o.setName("razon").setDescription("Razón.")),
-  new SlashCommandBuilder().setName("timeout").setDescription("Aplica timeout.").addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)).addIntegerOption(o => o.setName("minutos").setDescription("Minutos.").setMinValue(1).setMaxValue(40320).setRequired(true)).addStringOption(o => o.setName("razon").setDescription("Razón.")),
-  new SlashCommandBuilder().setName("untimeout").setDescription("Quita el timeout.").addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)),
-  new SlashCommandBuilder().setName("warn").setDescription("Advierte a un usuario.").addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)).addStringOption(o => o.setName("razon").setDescription("Razón.").setRequired(true)),
-  new SlashCommandBuilder().setName("warnings").setDescription("Muestra las advertencias.").addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)),
-  new SlashCommandBuilder().setName("clearwarns").setDescription("Borra las advertencias.").addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)),
-  new SlashCommandBuilder().setName("clear").setDescription("Borra mensajes.").addIntegerOption(o => o.setName("cantidad").setDescription("Cantidad.").setMinValue(1).setMaxValue(100).setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("ban")
+    .setDescription("Banea a un usuario.")
+    .addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true))
+    .addStringOption(o => o.setName("razon").setDescription("Razón.")),
+
+  new SlashCommandBuilder()
+    .setName("unban")
+    .setDescription("Quita el ban.")
+    .addStringOption(o => o.setName("usuario").setDescription("ID.").setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName("kick")
+    .setDescription("Expulsa a un usuario.")
+    .addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true))
+    .addStringOption(o => o.setName("razon").setDescription("Razón.")),
+
+  new SlashCommandBuilder()
+    .setName("timeout")
+    .setDescription("Aplica timeout.")
+    .addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true))
+    .addIntegerOption(o => o
+      .setName("minutos")
+      .setDescription("Minutos.")
+      .setMinValue(1)
+      .setMaxValue(40320)
+      .setRequired(true))
+    .addStringOption(o => o.setName("razon").setDescription("Razón.")),
+
+  new SlashCommandBuilder()
+    .setName("untimeout")
+    .setDescription("Quita el timeout.")
+    .addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName("warn")
+    .setDescription("Advierte a un usuario.")
+    .addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true))
+    .addStringOption(o => o.setName("razon").setDescription("Razón.").setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName("warnings")
+    .setDescription("Muestra las advertencias.")
+    .addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName("clearwarns")
+    .setDescription("Borra las advertencias.")
+    .addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName("clear")
+    .setDescription("Borra mensajes.")
+    .addIntegerOption(o => o
+      .setName("cantidad")
+      .setDescription("Cantidad.")
+      .setMinValue(1)
+      .setMaxValue(100)
+      .setRequired(true)),
+
   new SlashCommandBuilder().setName("lock").setDescription("Bloquea el canal."),
   new SlashCommandBuilder().setName("unlock").setDescription("Desbloquea el canal."),
-  new SlashCommandBuilder().setName("slowmode").setDescription("Configura slowmode.").addIntegerOption(o => o.setName("segundos").setDescription("Segundos.").setMinValue(0).setMaxValue(21600).setRequired(true)),
-  new SlashCommandBuilder().setName("nick").setDescription("Cambia un apodo.").addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true)).addStringOption(o => o.setName("nombre").setDescription("Nuevo apodo.").setRequired(true)),
-  new SlashCommandBuilder().setName("userinfo").setDescription("Muestra información de un usuario.").addUserOption(o => o.setName("usuario").setDescription("Usuario.")),
-  new SlashCommandBuilder().setName("serverinfo").setDescription("Muestra información del servidor."),
-  new SlashCommandBuilder().setName("post-alter").setDescription("Publica el formulario para postularse como Alter."),
-  new SlashCommandBuilder().setName("post-staff").setDescription("Publica el formulario para postularse como Helper.")
+
+  new SlashCommandBuilder()
+    .setName("slowmode")
+    .setDescription("Configura slowmode.")
+    .addIntegerOption(o => o
+      .setName("segundos")
+      .setDescription("Segundos.")
+      .setMinValue(0)
+      .setMaxValue(21600)
+      .setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName("nick")
+    .setDescription("Cambia un apodo.")
+    .addUserOption(o => o.setName("usuario").setDescription("Usuario.").setRequired(true))
+    .addStringOption(o => o.setName("nombre").setDescription("Nuevo apodo.").setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName("userinfo")
+    .setDescription("Muestra información de un usuario.")
+    .addUserOption(o => o.setName("usuario").setDescription("Usuario.")),
+
+  new SlashCommandBuilder()
+    .setName("serverinfo")
+    .setDescription("Muestra información del servidor."),
+
+  new SlashCommandBuilder()
+    .setName("post-alter")
+    .setDescription("Publica el formulario para postularse como Alter."),
+
+  new SlashCommandBuilder()
+    .setName("post-staff")
+    .setDescription("Publica el formulario para postularse como Helper."),
+
+  new SlashCommandBuilder()
+    .setName("vouch")
+    .setDescription("Añade un vouch a un usuario.")
+    .addUserOption(o => o.setName("usuario").setDescription("Usuario que recibe el vouch.").setRequired(true))
+    .addStringOption(o => o.setName("mensaje").setDescription("Mensaje del vouch.").setRequired(true))
 ].map(c => c.toJSON());
 
-// Fuente única para el Dashboard: refleja automáticamente los comandos definidos en el bot.
-const DASHBOARD_COMMANDS = commands.map(c => ({name:c.name,description:c.description||"",options:(c.options||[]).map(o => ({name:o.name,description:o.description||"",type:o.type,options:(o.options||[]).map(s => ({name:s.name,description:s.description||""}))}))}));
-
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildModeration],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildModeration
+  ],
   partials: [Partials.Channel]
 });
 
+const DASHBOARD_COMMANDS = commands.map(command => ({
+  name: command.name,
+  description: command.description || "",
+  options: (command.options || []).map(option => ({
+    name: option.name,
+    description: option.description || "",
+    type: option.type,
+    options: (option.options || []).map(sub => ({
+      name: sub.name,
+      description: sub.description || ""
+    }))
+  }))
+}));
+
 async function registerCommands() {
-  if (!CLIENT_ID) return;
+  if (!TOKEN) return;
   const rest = new REST({ version: "10" }).setToken(TOKEN);
-  if (GUILD_ID) {
-    const result = await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
-    console.log("Comandos registrados en el servidor:", Array.isArray(result) ? result.map(c => c.name).join(", ") : "OK");
-  } else {
-    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-    console.log("Comandos globales registrados.");
+  const result = await rest.put(
+    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+    { body: commands }
+  );
+  console.log(
+    "Nexus: comandos registrados:",
+    Array.isArray(result) ? result.map(c => c.name).join(", ") : "OK"
+  );
+}
+
+function renderQuestions(questions) {
+  const items = [];
+  let length = 0;
+  for (let i = 0; i < questions.length; i++) {
+    const chunk = "**" + (i + 1) + ". " + questions[i] + "**\n> ✏️ Respuesta:\n\n";
+    if (length + chunk.length > 3600) break;
+    items.push(chunk);
+    length += chunk.length;
   }
+  return items.join("");
 }
 
 async function handleTicket(interaction) {
@@ -442,25 +1218,33 @@ async function handleTicket(interaction) {
   if (sub === "panel") {
     if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Necesitas permisos de Staff.", ephemeral: true });
     const target = interaction.options.getChannel("canal") || channel;
+    if (!target?.isTextBased()) return interaction.reply({ content: "❌ Ese canal no admite mensajes.", ephemeral: true });
     await target.send({ embeds: [panelEmbed()], components: panelComponents() });
     return interaction.reply({ content: "✅ Panel enviado en " + target + ".", ephemeral: true });
   }
 
   if (sub === "setup") {
     if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Necesitas permisos de Staff.", ephemeral: true });
+
     const category = interaction.options.getChannel("categoria");
     const staff = interaction.options.getRole("staff");
     const logs = interaction.options.getChannel("logs");
 
-    if (category) gd.categoryId = category.id;
-    if (staff) gd.staffRoleId = staff.id;
-    if (logs) gd.logsChannelId = logs.id;
-    saveDB();
+    if (category) gd.categoryId = sanitizeSnowflake(category.id);
+    if (staff) gd.staffRoleId = sanitizeSnowflake(staff.id);
+    if (logs) gd.logsChannelId = sanitizeSnowflake(logs.id);
+
+    touchConfig(gd);
+    db.guilds[interaction.guild.id] = gd;
+    saveDB("ticket setup");
+    await pushPanelState();
 
     return interaction.reply({
-      content: "⚙️ Configuración actualizada.\nCategoría: " + (gd.categoryId ? "<#" + gd.categoryId + ">" : "no configurada") +
-        "\nStaff: " + (gd.staffRoleId ? "<@&" + gd.staffRoleId + ">" : "no configurado") +
-        "\nLogs: " + (gd.logsChannelId ? "<#" + gd.logsChannelId + ">" : "no configurado"),
+      content:
+        "⚙️ **Configuración actualizada**\n" +
+        "Categoría: " + channelMention(gd.categoryId) + "\n" +
+        "Staff: " + roleMention(gd.staffRoleId) + "\n" +
+        "Logs: " + channelMention(gd.logsChannelId),
       ephemeral: true
     });
   }
@@ -468,8 +1252,13 @@ async function handleTicket(interaction) {
   if (sub === "list") {
     if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Necesitas permisos de Staff.", ephemeral: true });
     const open = Object.values(gd.tickets).filter(t => !t.closed);
-    const text = open.length ? open.map(t => "<#" + t.channelId + "> • <@" + t.userId + "> • " + t.type).join("\n") : "📭 No hay tickets abiertos.";
-    return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLOR.purple).setTitle("🎫 Tickets abiertos").setDescription(text)], ephemeral: true });
+    const description = open.length
+      ? open.map(t => "<#" + t.channelId + "> • <@" + t.userId + "> • " + t.type).join("\n")
+      : "📭 No hay tickets abiertos.";
+    return interaction.reply({
+      embeds: [new EmbedBuilder().setColor(COLOR.purple).setTitle("🎫 Tickets abiertos").setDescription(description)],
+      ephemeral: true
+    });
   }
 
   if (!ticket) return interaction.reply({ content: "❌ Este canal no es un ticket.", ephemeral: true });
@@ -487,83 +1276,182 @@ async function handleTicket(interaction) {
 
   if (sub === "claim") {
     ticket.claimedBy = interaction.user.id;
-    saveDB();
-    await channel.send({ embeds: [new EmbedBuilder().setColor(COLOR.blue).setTitle("🙋 Ticket reclamado").setDescription("Atendido por <@" + interaction.user.id + ">.")] });
+    saveDB("ticket reclamado");
+    await channel.send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(COLOR.blue)
+          .setTitle("🙋 Ticket reclamado")
+          .setDescription("Atendido por <@" + interaction.user.id + ">.")
+      ]
+    }).catch(() => {});
+    await sendLog(
+      interaction.guild,
+      new EmbedBuilder().setColor(COLOR.blue).setTitle("🙋 Ticket reclamado")
+        .setDescription("**Canal:** " + channel + "\n**Staff:** " + interaction.user)
+        .setTimestamp()
+    );
     return interaction.reply({ content: "🙋 Ticket reclamado.", ephemeral: true });
   }
 
   if (sub === "unclaim") {
     ticket.claimedBy = null;
-    saveDB();
+    saveDB("ticket liberado");
     return interaction.reply({ content: "✅ Ticket liberado.", ephemeral: true });
   }
 
   if (sub === "add") {
     const user = interaction.options.getUser("usuario", true);
-    await channel.permissionOverwrites.edit(user.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
+    await channel.permissionOverwrites.edit(user.id, {
+      ViewChannel: true,
+      SendMessages: true,
+      ReadMessageHistory: true,
+      AttachFiles: true
+    });
     return interaction.reply({ content: "✅ " + user + " fue añadido.", ephemeral: true });
   }
 
   if (sub === "remove") {
     const user = interaction.options.getUser("usuario", true);
+    if (user.id === ticket.userId) return interaction.reply({ content: "❌ No puedes quitar al creador original del ticket.", ephemeral: true });
     await channel.permissionOverwrites.delete(user.id).catch(() => {});
     return interaction.reply({ content: "✅ " + user + " fue retirado.", ephemeral: true });
   }
 
   if (sub === "rename") {
-    const name = interaction.options.getString("nombre", true).toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 90);
-    await channel.setName(name || "ticket");
+    const nameValue = interaction.options.getString("nombre", true)
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 90);
+
+    if (!nameValue) return interaction.reply({ content: "❌ Nombre inválido.", ephemeral: true });
+    await channel.setName(nameValue);
+    recordActivity(interaction.guild.id, "Ticket renombrado", activityUser(interaction.user), "#" + nameValue);
     return interaction.reply({ content: "✅ Ticket renombrado.", ephemeral: true });
   }
 
   if (sub === "transcript") {
     const file = new AttachmentBuilder(await makeTranscript(channel), { name: "transcript-" + channel.id + ".txt" });
-    const logs = gd.logsChannelId ? await interaction.guild.channels.fetch(gd.logsChannelId).catch(() => null) : null;
-    if (logs && logs.isTextBased()) {
-      await logs.send({ content: "📄 Transcript de " + channel + " generado por " + interaction.user + ".", files: [file] });
+    const logs = gd.logsChannelId
+      ? await interaction.guild.channels.fetch(gd.logsChannelId).catch(() => null)
+      : null;
+
+    if (logs?.isTextBased()) {
+      await logs.send({
+        content: "📄 Transcript de " + channel + " generado por " + interaction.user + ".",
+        files: [file]
+      });
       return interaction.reply({ content: "📄 Transcript enviado a logs.", ephemeral: true });
     }
+
     return interaction.reply({ content: "📄 Transcript generado:", files: [file], ephemeral: true });
   }
 
   if (sub === "delete") {
     await interaction.reply({ content: "🗑️ Eliminando ticket...", ephemeral: true });
-    delete gd.tickets[ticket.userId];
-    saveDB();
-    return setTimeout(() => channel.delete().catch(() => {}), 1000);
+    delete gd.tickets[ticket.channelId];
+    saveDB("ticket eliminado");
+    recordActivity(interaction.guild.id, "Ticket eliminado", activityUser(interaction.user), "#" + channel.name);
+    await sendLog(
+      interaction.guild,
+      new EmbedBuilder().setColor(COLOR.red).setTitle("🗑️ Ticket eliminado")
+        .setDescription("**Canal:** " + channel + "\n**Por:** " + interaction.user)
+        .setTimestamp()
+    );
+    setTimeout(() => channel.delete().catch(() => {}), 1000);
   }
 }
 
-client.once("ready", async () => {  console.log("Nexus conectado. Sincronización Panel ↔ Fadehost activa.");
-  await syncPanelConfig();
-  setInterval(syncPanelConfig, 5000);
+function canModerateTarget(actor, target) {
+  if (!actor || !target) return false;
+  if (target.id === actor.id) return false;
+  if (target.id === client.user?.id) return false;
+  return target.manageable;
+}
 
-  console.log(BOT_BRAND + " conectado como " + client.user.tag);
-  client.user.setActivity("🎫 Nexus • /ticket panel", { type: 0 });
-  try { await registerCommands(); } catch (e) { console.error("Error registrando comandos:", e); }
+function moderatorReason(interaction) {
+  return (interaction.options.getString("razon")?.trim().slice(0, 500)) || "Sin razón indicada";
+}
+
+function safeEmbedText(text, max = 4000) {
+  return String(text || "").slice(0, max);
+}
+
+client.once("ready", async () => {
+  console.log("Nexus: conectado como " + client.user.tag + ".");
+  client.user.setActivity("Nexus • /ticket panel", { type: 0 });
+
+  try { await registerCommands(); }
+  catch (error) { console.error("Nexus: error registrando comandos:", error); }
+
+  await syncPanelConfig();
+  await pushPanelState();
+
+  clearInterval(globalThis.__panelSyncTimer);
+  globalThis.__panelSyncTimer = setInterval(() => syncPanelConfig().catch(() => {}), 3000);
+
+  clearInterval(globalThis.__panelPushTimer);
+  globalThis.__panelPushTimer = setInterval(() => pushPanelState().catch(() => {}), 5000);
 });
 
 client.on("interactionCreate", async interaction => {
   try {
+    if (interaction.guild?.id === GUILD_ID && interaction.isChatInputCommand()) {
+      const sub = interaction.options?.getSubcommand(false);
+      recordActivity(
+        interaction.guild.id,
+        "Comando",
+        activityUser(interaction.user),
+        "/" + interaction.commandName + (sub ? " " + sub : "")
+      );
+    }
+
     if (interaction.isStringSelectMenu() && interaction.customId === "ticket_create") {
+      if (!interaction.guild) return;
       await interaction.deferReply({ ephemeral: true });
       const result = await createTicket(interaction.guild, interaction.user, interaction.values[0]);
-      if (result.limit) return interaction.editReply("⚠️ Has alcanzado el límite de **2 tickets abiertos**. Cierra uno antes de abrir otro.");
+
+      if (result.busy) return interaction.editReply("⏳ Ya se está creando uno de tus tickets. Espera un momento.");
+      if (result.limit) {
+        const current = result.channelIds.map(id => "<#" + id + ">").join(", ");
+        return interaction.editReply("⚠️ Has alcanzado el límite de **2 tickets abiertos**.\nActuales: " + (current || "ninguno"));
+      }
+      if (result.error) return interaction.editReply("❌ " + result.error);
       return interaction.editReply("✅ Ticket creado: " + result.channel);
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("ticket_")) {
+      if (!interaction.guild || !interaction.channel) return;
       const ticket = ticketByChannel(interaction.guild.id, interaction.channel.id);
       if (!ticket) return interaction.reply({ content: "❌ Este canal no es un ticket.", ephemeral: true });
 
       if (interaction.customId === "ticket_close") {
-        if (!isStaff(interaction.member) && interaction.user.id !== ticket.userId) return interaction.reply({ content: "❌ No puedes cerrar este ticket.", ephemeral: true });
+        if (!isStaff(interaction.member) && interaction.user.id !== ticket.userId) {
+          return interaction.reply({ content: "❌ No puedes cerrar este ticket.", ephemeral: true });
+        }
+
         await interaction.reply({ content: "🔒 Ticket cerrado. Se eliminará en 5 segundos.", ephemeral: true });
+
         setTimeout(async () => {
-          const gd = getGuild(interaction.guild.id);
-          delete gd.tickets[ticket.userId];
-          saveDB();
-          await interaction.channel.delete().catch(() => {});
+          try {
+            const gd = getGuild(interaction.guild.id);
+            if (gd.tickets[interaction.channel.id]) {
+              delete gd.tickets[interaction.channel.id];
+              saveDB("cierre con botón");
+            }
+            await sendLog(
+              interaction.guild,
+              new EmbedBuilder().setColor(COLOR.red).setTitle("🔒 Ticket eliminado tras cerrar")
+                .setDescription("**Canal:** <#" + interaction.channel.id + ">\n**Por:** " + interaction.user)
+                .setTimestamp()
+            );
+            recordActivity(interaction.guild.id, "Ticket eliminado", activityUser(interaction.user), "Cierre automático tras 5 segundos");
+            await interaction.channel.delete().catch(() => {});
+          } catch (error) {
+            console.error("Nexus: error cerrando ticket con botón:", error);
+          }
         }, 5000);
         return;
       }
@@ -577,18 +1465,31 @@ client.on("interactionCreate", async interaction => {
       if (interaction.customId === "ticket_claim") {
         if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Solo Staff.", ephemeral: true });
         ticket.claimedBy = interaction.user.id;
-        saveDB();
-        await interaction.channel.send({ embeds: [new EmbedBuilder().setColor(COLOR.blue).setTitle("🙋 Ticket reclamado").setDescription("Atendido por <@" + interaction.user.id + ">.")] });
+        saveDB("ticket reclamado");
+        await interaction.channel.send({
+          embeds: [
+            new EmbedBuilder().setColor(COLOR.blue).setTitle("🙋 Ticket reclamado")
+              .setDescription("Atendido por <@" + interaction.user.id + ">.")
+          ]
+        }).catch(() => {});
         return interaction.reply({ content: "🙋 Ticket reclamado.", ephemeral: true });
       }
 
       if (interaction.customId === "ticket_transcript") {
         if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Solo Staff.", ephemeral: true });
-        const file = new AttachmentBuilder(await makeTranscript(interaction.channel), { name: "transcript-" + interaction.channel.id + ".txt" });
+        const file = new AttachmentBuilder(await makeTranscript(interaction.channel), {
+          name: "transcript-" + interaction.channel.id + ".txt"
+        });
         const gd = getGuild(interaction.guild.id);
-        const logs = gd.logsChannelId ? await interaction.guild.channels.fetch(gd.logsChannelId).catch(() => null) : null;
-        if (logs && logs.isTextBased()) {
-          await logs.send({ content: "📄 Transcript de " + interaction.channel + " generado por " + interaction.user + ".", files: [file] });
+        const logs = gd.logsChannelId
+          ? await interaction.guild.channels.fetch(gd.logsChannelId).catch(() => null)
+          : null;
+
+        if (logs?.isTextBased()) {
+          await logs.send({
+            content: "📄 Transcript de " + interaction.channel + " generado por " + interaction.user + ".",
+            files: [file]
+          });
           return interaction.reply({ content: "📄 Transcript enviado a logs.", ephemeral: true });
         }
         return interaction.reply({ content: "📄 Transcript:", files: [file], ephemeral: true });
@@ -598,14 +1499,20 @@ client.on("interactionCreate", async interaction => {
         if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Solo Staff.", ephemeral: true });
         await interaction.reply({ content: "🗑️ Eliminando ticket...", ephemeral: true });
         const gd = getGuild(interaction.guild.id);
-        delete gd.tickets[ticket.userId];
-        saveDB();
-        return setTimeout(() => interaction.channel.delete().catch(() => {}), 1000);
+        delete gd.tickets[ticket.channelId];
+        saveDB("ticket eliminado por botón");
+        await sendLog(
+          interaction.guild,
+          new EmbedBuilder().setColor(COLOR.red).setTitle("🗑️ Ticket eliminado")
+            .setDescription("**Canal:** " + interaction.channel + "\n**Por:** " + interaction.user)
+            .setTimestamp()
+        );
+        setTimeout(() => interaction.channel.delete().catch(() => {}), 1000);
+        return;
       }
     }
 
     if (!interaction.isChatInputCommand() || !interaction.guild) return;
-
     const name = interaction.commandName;
 
     if (name === "ticket") return handleTicket(interaction);
@@ -614,50 +1521,71 @@ client.on("interactionCreate", async interaction => {
       if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Necesitas permisos de Staff.", ephemeral: true });
       const gd = getGuild(interaction.guild.id);
       if (interaction.options.getSubcommand() === "set") {
-        gd.logsChannelId = interaction.options.getChannel("canal", true).id;
-        saveDB();
+        gd.logsChannelId = sanitizeSnowflake(interaction.options.getChannel("canal", true).id);
+        touchConfig(gd);
+        db.guilds[interaction.guild.id] = gd;
+        saveDB("modlog set");
+        await pushPanelState();
         return interaction.reply({ content: "✅ Logs configurados.", ephemeral: true });
       }
       gd.logsChannelId = null;
-      saveDB();
+      touchConfig(gd);
+      db.guilds[interaction.guild.id] = gd;
+      saveDB("modlog off");
+      await pushPanelState();
       return interaction.reply({ content: "✅ Logs desactivados.", ephemeral: true });
     }
 
     if (name === "vouch") {
       const user = interaction.options.getUser("usuario", true);
-      const message = interaction.options.getString("mensaje", true).trim();
+      const message = safeEmbedText(interaction.options.getString("mensaje", true).trim(), 1000);
       const gd = getGuild(interaction.guild.id);
 
-      if (!gd.vouches) gd.vouches = {};
-      const previous = Number(gd.vouches[user.id] || 0);
-      const count = previous + 1;
+      if (gd.vouchChannelId && interaction.channelId !== gd.vouchChannelId) {
+        return interaction.reply({
+          content: "❌ El comando /vouch solo está permitido en <#" + gd.vouchChannelId + ">.",
+          ephemeral: true
+        });
+      }
+      if (!message) return interaction.reply({ content: "❌ El mensaje no puede estar vacío.", ephemeral: true });
+
+      const count = Number(gd.vouches[user.id] || 0) + 1;
       gd.vouches[user.id] = count;
-      saveDB();
+      db.guilds[interaction.guild.id] = gd;
+      saveDB("vouch");
 
       const member = await interaction.guild.members.fetch(user.id).catch(() => null);
       let nicknameUpdated = false;
 
-      if (target && target.manageable) {
-        const current = member.nickname || member.user.globalName || member.user.username;
-        const base = current.replace(/\\s*\\d+V\\s*$/i, "").trim();
-        const newNickname = (base + " " + count + "V").slice(0, 32);
-        if (newNickname !== current) {
-          await member.setNickname(newNickname, "Vouch recibido").then(() => {
-            nicknameUpdated = true;
-          }).catch(() => {});
+      if (member?.manageable) {
+        const current = String(member.nickname || member.user.globalName || member.user.username || "").trim();
+        const base = current.replace(/\s*\d+V\s*$/i, "").trim();
+        const newNickname = (base + " " + count + "V").trim().slice(0, 32);
+        if (newNickname && newNickname !== current) {
+          await member.setNickname(newNickname, "Vouch recibido").then(() => { nicknameUpdated = true; }).catch(() => {});
         }
       }
 
+      await sendLog(
+        interaction.guild,
+        new EmbedBuilder().setColor(COLOR.green).setTitle("⭐ Vouch recibido")
+          .setDescription(
+            "**Usuario:** " + user + "\n" +
+            "**Vouch:** " + count + "V\n" +
+            "**Por:** " + interaction.user + "\n" +
+            "**Mensaje:** " + message
+          )
+          .setTimestamp()
+      );
+
       return interaction.reply({
         embeds: [
-          new EmbedBuilder()
-            .setColor(COLOR.green)
-            .setTitle("Vouch recibido")
+          new EmbedBuilder().setColor(COLOR.green).setTitle("⭐ Vouch recibido")
             .setDescription(
-              "**Usuario:** " + user + "\\n" +
-              "**Vouch:** " + count + "V\\n" +
+              "**Usuario:** " + user + "\n" +
+              "**Vouch:** " + count + "V\n" +
               "**Mensaje:** " + message +
-              (nicknameUpdated ? "\\n\\nNombre actualizado a **" + count + "V**." : "")
+              (nicknameUpdated ? "\n\nNombre actualizado con **" + count + "V**." : "")
             )
             .setTimestamp()
         ]
@@ -666,170 +1594,309 @@ client.on("interactionCreate", async interaction => {
 
     if (name === "post-staff") {
       await syncPanelConfig();
-      const questions = getGuild(interaction.guild.id).staffQuestions?.length ? getGuild(interaction.guild.id).staffQuestions : DEFAULT_STAFF_QUESTIONS;
+      const questions = getGuild(interaction.guild.id).staffQuestions.length
+        ? getGuild(interaction.guild.id).staffQuestions
+        : DEFAULT_STAFF_QUESTIONS;
 
-      const embed = new EmbedBuilder()
-        .setColor(COLOR.purple)
-        .setTitle("🛡️ FORMULARIO — POSTULACIÓN A HELPER")
-        .setDescription(
-          "**📋 Responde las preguntas en orden.**\n" +
-          "Copia el número de cada pregunta y escribe tu respuesta debajo.\n\n" +
-          questions.map((q, i) => "**" + (i + 1) + ". " + q + "**\n> ✏️ Respuesta:").join("\n\n") +
-          "\n\n📌 **Buscamos personas activas, responsables, respetuosas y comprometidas con la comunidad.**\n\n" +
-          "<@&1554708798499725393> <@&1554708987700715531>"
-        )
-        .setFooter({ text: BOT_BRAND + " • Postulación a Helper" })
-        .setTimestamp();
+      const description =
+        "**📋 Responde las preguntas en orden.**\n" +
+        "Copia el número de cada pregunta y escribe tu respuesta debajo.\n\n" +
+        renderQuestions(questions) +
+        "📌 **Buscamos personas activas, responsables, respetuosas y comprometidas con la comunidad.**\n\n" +
+        POST_STAFF_NOTIFY_ROLE_IDS.map(id => "<@&" + id + ">").join(" ");
 
-      return interaction.reply({ embeds: [embed] });
+      return interaction.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(COLOR.purple)
+            .setTitle("🛡️ FORMULARIO — POSTULACIÓN A HELPER")
+            .setDescription(description)
+            .setFooter({ text: BOT_BRAND + " • Postulación a Helper" })
+            .setTimestamp()
+        ]
+      });
     }
 
     if (name === "post-alter") {
       await syncPanelConfig();
-      const questions = getGuild(interaction.guild.id).alterQuestions?.length ? getGuild(interaction.guild.id).alterQuestions : DEFAULT_ALTER_QUESTIONS;
+      const questions = getGuild(interaction.guild.id).alterQuestions.length
+        ? getGuild(interaction.guild.id).alterQuestions
+        : DEFAULT_ALTER_QUESTIONS;
 
-      const embed = new EmbedBuilder()
-        .setColor(COLOR.purple)
-        .setTitle("🎁 FORMULARIO — POSTULACIÓN A ALTER")
-        .setDescription(
-          "**📋 Responde las preguntas en orden.**\n" +
-          "Copia el número de cada pregunta y escribe tu respuesta debajo.\n\n" +
-          questions.map((q, i) => "**" + (i + 1) + ". " + q + "**\n> ✏️ Respuesta:").join("\n\n")
-        )
-        .setFooter({ text: BOT_BRAND + " • Postulación a Alter" })
-        .setTimestamp();
+      const description =
+        "**📋 Responde las preguntas en orden.**\n" +
+        "Copia el número de cada pregunta y escribe tu respuesta debajo.\n\n" +
+        renderQuestions(questions);
 
-      return interaction.reply({ embeds: [embed] });
+      return interaction.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(COLOR.purple)
+            .setTitle("🎁 FORMULARIO — POSTULACIÓN A ALTER")
+            .setDescription(description)
+            .setFooter({ text: BOT_BRAND + " • Postulación a Alter" })
+            .setTimestamp()
+        ]
+      });
     }
 
     if (name === "userinfo") {
       const user = interaction.options.getUser("usuario") || interaction.user;
-      const m = await interaction.guild.members.fetch(user.id).catch(() => null);
-      return interaction.reply({ embeds: [
-        new EmbedBuilder().setColor(COLOR.purple).setTitle("👤 Información de usuario")
-          .setThumbnail(user.displayAvatarURL({ size: 256 }))
-          .addFields(
-            { name: "Usuario", value: user.tag, inline: true },
-            { name: "ID", value: user.id, inline: true },
-            { name: "Cuenta", value: "<t:" + Math.floor(user.createdTimestamp / 1000) + ":R>", inline: true },
-            { name: "Entrada", value: m?.joinedTimestamp ? "<t:" + Math.floor(m.joinedTimestamp / 1000) + ":R>" : "Desconocida", inline: true }
-          )
-      ]});
+      const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+      return interaction.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(COLOR.purple)
+            .setTitle("👤 Información de usuario")
+            .setThumbnail(user.displayAvatarURL({ size: 256 }))
+            .addFields(
+              { name: "Usuario", value: safeEmbedText(user.tag, 1024), inline: true },
+              { name: "ID", value: user.id, inline: true },
+              { name: "Cuenta", value: "<t:" + Math.floor(user.createdTimestamp / 1000) + ":R>", inline: true },
+              {
+                name: "Entrada",
+                value: member?.joinedTimestamp ? "<t:" + Math.floor(member.joinedTimestamp / 1000) + ":R>" : "Desconocida",
+                inline: true
+              }
+            )
+        ]
+      });
     }
 
     if (name === "serverinfo") {
-      const g = interaction.guild;
-      return interaction.reply({ embeds: [
-        new EmbedBuilder().setColor(COLOR.purple).setTitle("🏠 Información del servidor")
-          .addFields(
-            { name: "Nombre", value: g.name, inline: true },
-            { name: "ID", value: g.id, inline: true },
-            { name: "Miembros", value: String(g.memberCount), inline: true },
-            { name: "Canales", value: String(g.channels.cache.size), inline: true },
-            { name: "Roles", value: String(g.roles.cache.size), inline: true }
-          )
-      ]});
+      const guild = interaction.guild;
+      return interaction.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(COLOR.purple)
+            .setTitle("🏠 Información del servidor")
+            .addFields(
+              { name: "Nombre", value: safeEmbedText(guild.name, 1024), inline: true },
+              { name: "ID", value: guild.id, inline: true },
+              { name: "Miembros", value: String(guild.memberCount || 0), inline: true },
+              { name: "Canales", value: String(guild.channels.cache.size), inline: true },
+              { name: "Roles", value: String(guild.roles.cache.size), inline: true }
+            )
+        ]
+      });
     }
 
     if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ No tienes permisos para usar este comando.", ephemeral: true });
 
     if (name === "ban") {
       const user = interaction.options.getUser("usuario", true);
-      const reason = interaction.options.getString("razon") || "Sin razón indicada";
+      const reason = moderatorReason(interaction);
+      const target = await interaction.guild.members.fetch(user.id).catch(() => null);
+
+      if (target && target.id === interaction.user.id) return interaction.reply({ content: "❌ No puedes banearte a ti mismo.", ephemeral: true });
+      if (target && !target.bannable) return interaction.reply({ content: "❌ No puedo banear a ese usuario por la jerarquía.", ephemeral: true });
+
       await interaction.guild.members.ban(user.id, { reason });
-      await sendLog(interaction.guild, new EmbedBuilder().setColor(COLOR.red).setTitle("🔨 Usuario baneado").setDescription("**Usuario:** " + user + "\n**Moderador:** " + interaction.user + "\n**Razón:** " + reason).setTimestamp());
+      await sendLog(
+        interaction.guild,
+        new EmbedBuilder().setColor(COLOR.red).setTitle("🔨 Usuario baneado")
+          .setDescription("**Usuario:** " + user + "\n**Moderador:** " + interaction.user + "\n**Razón:** " + reason)
+          .setTimestamp()
+      );
       return interaction.reply("🔨 " + user.tag + " fue baneado.");
     }
 
     if (name === "unban") {
-      const id = interaction.options.getString("usuario", true);
-      await interaction.guild.members.unban(id);
+      const id = interaction.options.getString("usuario", true).trim();
+      if (!/^\d{17,20}$/.test(id)) return interaction.reply({ content: "❌ ID de usuario inválida.", ephemeral: true });
+      await interaction.guild.members.unban(id, "Ban retirado por " + interaction.user.tag);
+      await sendLog(
+        interaction.guild,
+        new EmbedBuilder().setColor(COLOR.green).setTitle("✅ Ban retirado")
+          .setDescription("**Usuario ID:** " + id + "\n**Moderador:** " + interaction.user)
+          .setTimestamp()
+      );
       return interaction.reply("✅ Ban retirado para " + id + ".");
     }
 
     if (name === "kick") {
       const user = interaction.options.getUser("usuario", true);
-      const target = await interaction.guild.members.fetch(user.id);
-      if (!target.kickable) return interaction.reply({ content: "❌ No puedo expulsar a ese usuario por la jerarquía.", ephemeral: true });
-      await target.kick(interaction.options.getString("razon") || "Sin razón indicada");
+      const target = await interaction.guild.members.fetch(user.id).catch(() => null);
+      if (!target) return interaction.reply({ content: "❌ No encontré a ese miembro.", ephemeral: true });
+      if (!canModerateTarget(interaction.member, target) || !target.kickable) {
+        return interaction.reply({ content: "❌ No puedo expulsar a ese usuario por la jerarquía.", ephemeral: true });
+      }
+      const reason = moderatorReason(interaction);
+      await target.kick(reason);
+      await sendLog(
+        interaction.guild,
+        new EmbedBuilder().setColor(COLOR.orange).setTitle("👢 Usuario expulsado")
+          .setDescription("**Usuario:** " + user + "\n**Moderador:** " + interaction.user + "\n**Razón:** " + reason)
+          .setTimestamp()
+      );
       return interaction.reply("👢 " + user.tag + " fue expulsado.");
     }
 
     if (name === "timeout") {
       const user = interaction.options.getUser("usuario", true);
-      const target = await interaction.guild.members.fetch(user.id);
-      if (!target.moderatable) return interaction.reply({ content: "❌ No puedo aplicar timeout a ese usuario.", ephemeral: true });
+      const target = await interaction.guild.members.fetch(user.id).catch(() => null);
+      if (!target) return interaction.reply({ content: "❌ No encontré a ese miembro.", ephemeral: true });
+      if (!canModerateTarget(interaction.member, target) || !target.moderatable) {
+        return interaction.reply({ content: "❌ No puedo aplicar timeout a ese usuario por la jerarquía.", ephemeral: true });
+      }
       const minutes = interaction.options.getInteger("minutos", true);
-      await target.timeout(minutes * 60000, interaction.options.getString("razon") || "Sin razón indicada");
+      const reason = moderatorReason(interaction);
+      await target.timeout(minutes * 60000, reason);
+      await sendLog(
+        interaction.guild,
+        new EmbedBuilder().setColor(COLOR.orange).setTitle("⏳ Timeout aplicado")
+          .setDescription("**Usuario:** " + user + "\n**Moderador:** " + interaction.user + "\n**Duración:** " + minutes + " min\n**Razón:** " + reason)
+          .setTimestamp()
+      );
       return interaction.reply("⏳ Timeout aplicado a " + user.tag + " por " + minutes + " minutos.");
     }
 
     if (name === "untimeout") {
       const user = interaction.options.getUser("usuario", true);
-      const target = await interaction.guild.members.fetch(user.id);
-      await target.timeout(null, "Timeout retirado");
+      const target = await interaction.guild.members.fetch(user.id).catch(() => null);
+      if (!target) return interaction.reply({ content: "❌ No encontré a ese miembro.", ephemeral: true });
+      if (!target.moderatable) return interaction.reply({ content: "❌ No puedo quitar el timeout por la jerarquía.", ephemeral: true });
+      await target.timeout(null, "Timeout retirado por " + interaction.user.tag);
+      await sendLog(
+        interaction.guild,
+        new EmbedBuilder().setColor(COLOR.green).setTitle("✅ Timeout retirado")
+          .setDescription("**Usuario:** " + user + "\n**Moderador:** " + interaction.user)
+          .setTimestamp()
+      );
       return interaction.reply("✅ Timeout retirado.");
     }
 
     if (name === "warn") {
       const user = interaction.options.getUser("usuario", true);
-      const reason = interaction.options.getString("razon", true);
+      const reason = safeEmbedText(interaction.options.getString("razon", true).trim(), 500);
       const gd = getGuild(interaction.guild.id);
+
       if (!gd.warnings[user.id]) gd.warnings[user.id] = [];
-      gd.warnings[user.id].push({ reason, moderatorId: interaction.user.id, at: Date.now() });
-      saveDB();
+      gd.warnings[user.id].push({
+        reason,
+        moderatorId: interaction.user.id,
+        at: Date.now()
+      });
+      if (gd.warnings[user.id].length > 100) gd.warnings[user.id] = gd.warnings[user.id].slice(-100);
+
+      db.guilds[interaction.guild.id] = gd;
+      saveDB("warn");
+      await sendLog(
+        interaction.guild,
+        new EmbedBuilder().setColor(COLOR.orange).setTitle("⚠️ Advertencia")
+          .setDescription("**Usuario:** " + user + "\n**Moderador:** " + interaction.user + "\n**Razón:** " + reason)
+          .setTimestamp()
+      );
       return interaction.reply("⚠️ " + user.tag + " recibió una advertencia. Total: **" + gd.warnings[user.id].length + "**.");
     }
 
     if (name === "warnings") {
       const user = interaction.options.getUser("usuario", true);
       const list = getGuild(interaction.guild.id).warnings[user.id] || [];
-      const text = list.length ? list.map((w, i) => (i + 1) + ". " + w.reason + " • <@" + w.moderatorId + ">").join("\n") : "Sin advertencias.";
-      return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLOR.orange).setTitle("⚠️ Advertencias de " + user.tag).setDescription(text)], ephemeral: true });
+      const text = list.length
+        ? list.map((w, i) => (i + 1) + ". " + safeEmbedText(w.reason, 600) + " • <@" + (w.moderatorId || "0") + ">").join("\n")
+        : "Sin advertencias.";
+
+      return interaction.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(COLOR.orange)
+            .setTitle("⚠️ Advertencias de " + user.tag)
+            .setDescription(safeEmbedText(text, 3900))
+        ],
+        ephemeral: true
+      });
     }
 
     if (name === "clearwarns") {
       const user = interaction.options.getUser("usuario", true);
       const gd = getGuild(interaction.guild.id);
       delete gd.warnings[user.id];
-      saveDB();
+      db.guilds[interaction.guild.id] = gd;
+      saveDB("clearwarns");
+
+      await sendLog(
+        interaction.guild,
+        new EmbedBuilder().setColor(COLOR.green).setTitle("🧹 Advertencias eliminadas")
+          .setDescription("**Usuario:** " + user + "\n**Moderador:** " + interaction.user)
+          .setTimestamp()
+      );
       return interaction.reply("✅ Advertencias borradas.");
     }
 
     if (name === "clear") {
       const amount = interaction.options.getInteger("cantidad", true);
+      if (!interaction.channel?.isTextBased()) return interaction.reply({ content: "❌ Este canal no admite esa acción.", ephemeral: true });
       const deleted = await interaction.channel.bulkDelete(amount, true);
+
+      await sendLog(
+        interaction.guild,
+        new EmbedBuilder().setColor(COLOR.orange).setTitle("🧹 Mensajes borrados")
+          .setDescription("**Canal:** " + interaction.channel + "\n**Cantidad:** " + deleted.size + "\n**Moderador:** " + interaction.user)
+          .setTimestamp()
+      );
       return interaction.reply({ content: "🧹 Se borraron " + deleted.size + " mensajes.", ephemeral: true });
     }
 
     if (name === "lock") {
       await interaction.channel.permissionOverwrites.edit(interaction.guild.roles.everyone, { SendMessages: false });
+      await sendLog(
+        interaction.guild,
+        new EmbedBuilder().setColor(COLOR.red).setTitle("🔒 Canal bloqueado")
+          .setDescription("**Canal:** " + interaction.channel + "\n**Moderador:** " + interaction.user)
+          .setTimestamp()
+      );
       return interaction.reply("🔒 Canal bloqueado.");
     }
 
     if (name === "unlock") {
       await interaction.channel.permissionOverwrites.edit(interaction.guild.roles.everyone, { SendMessages: null });
+      await sendLog(
+        interaction.guild,
+        new EmbedBuilder().setColor(COLOR.green).setTitle("🔓 Canal desbloqueado")
+          .setDescription("**Canal:** " + interaction.channel + "\n**Moderador:** " + interaction.user)
+          .setTimestamp()
+      );
       return interaction.reply("🔓 Canal desbloqueado.");
     }
 
     if (name === "slowmode") {
       const seconds = interaction.options.getInteger("segundos", true);
       await interaction.channel.setRateLimitPerUser(seconds);
+      await sendLog(
+        interaction.guild,
+        new EmbedBuilder().setColor(COLOR.blue).setTitle("🐢 Slowmode actualizado")
+          .setDescription("**Canal:** " + interaction.channel + "\n**Segundos:** " + seconds + "\n**Moderador:** " + interaction.user)
+          .setTimestamp()
+      );
       return interaction.reply("🐢 Slowmode: " + seconds + " segundos.");
     }
 
     if (name === "nick") {
       const user = interaction.options.getUser("usuario", true);
-      const target = await interaction.guild.members.fetch(user.id);
-      if (!target.manageable) return interaction.reply({ content: "❌ No puedo cambiar ese apodo por la jerarquía.", ephemeral: true });
-      await target.setNickname(interaction.options.getString("nombre", true));
+      const nameValue = interaction.options.getString("nombre", true).trim().slice(0, 32);
+      if (!nameValue) return interaction.reply({ content: "❌ El apodo no puede estar vacío.", ephemeral: true });
+
+      const target = await interaction.guild.members.fetch(user.id).catch(() => null);
+      if (!target) return interaction.reply({ content: "❌ No encontré a ese miembro.", ephemeral: true });
+      if (!canModerateTarget(interaction.member, target) || !target.manageable) {
+        return interaction.reply({ content: "❌ No puedo cambiar ese apodo por la jerarquía.", ephemeral: true });
+      }
+
+      await target.setNickname(nameValue);
+      await sendLog(
+        interaction.guild,
+        new EmbedBuilder().setColor(COLOR.blue).setTitle("✏️ Apodo actualizado")
+          .setDescription("**Usuario:** " + user + "\n**Moderador:** " + interaction.user + "\n**Nuevo:** " + nameValue)
+          .setTimestamp()
+      );
       return interaction.reply("✏️ Apodo actualizado.");
     }
   } catch (error) {
-    console.error("Interaction error:", error);
-    const msg = "❌ " + (error?.message || "Ocurrió un error.").slice(0, 1800);
-    if (interaction.replied || interaction.deferred) await interaction.followUp({ content: msg, ephemeral: true }).catch(() => {});
-    else await interaction.reply({ content: msg, ephemeral: true }).catch(() => {});
+    console.error("Nexus: interaction error:", error);
+    const message = "❌ " + String(error?.message || "Ocurrió un error.").slice(0, 1800);
+    if (interaction.replied || interaction.deferred) await interaction.followUp({ content: message, ephemeral: true }).catch(() => {});
+    else await interaction.reply({ content: message, ephemeral: true }).catch(() => {});
   }
 });
 
@@ -837,114 +1904,368 @@ client.on("messageCreate", message => {
   if (!message.guild || message.author?.bot) return;
   recordActivity(message.guild.id, "Mensaje", activityUser(message.author), "En #" + (message.channel?.name || message.channelId));
 });
+
 client.on("messageDelete", message => {
   if (!message.guild || message.author?.bot) return;
   recordActivity(message.guild.id, "Mensaje borrado", activityUser(message.author), "En #" + (message.channel?.name || message.channelId));
 });
+
 client.on("messageUpdate", (oldMessage, newMessage) => {
   const guild = newMessage.guild || oldMessage.guild;
   if (!guild || newMessage.author?.bot) return;
   recordActivity(guild.id, "Mensaje editado", activityUser(newMessage.author), "En #" + (newMessage.channel?.name || newMessage.channelId));
 });
+
 client.on("guildMemberAdd", member => recordActivity(member.guild.id, "Miembro entró", activityUser(member.user), "Se unió"));
 client.on("guildMemberRemove", member => recordActivity(member.guild.id, "Miembro salió", activityUser(member.user), "Salió o fue expulsado"));
 client.on("guildBanAdd", ban => recordActivity(ban.guild.id, "Ban", activityUser(ban.user), "Usuario baneado"));
 client.on("guildBanRemove", ban => recordActivity(ban.guild.id, "Unban", activityUser(ban.user), "Ban retirado"));
-client.on("channelCreate", channel => channel.guild && recordActivity(channel.guild.id, "Canal creado", "Sistema", "#" + channel.name));
-client.on("channelDelete", channel => channel.guild && recordActivity(channel.guild.id, "Canal eliminado", "Sistema", "#" + channel.name));
-client.on("roleCreate", role => role.guild && recordActivity(role.guild.id, "Rol creado", "Sistema", "@" + role.name));
-client.on("roleDelete", role => role.guild && recordActivity(role.guild.id, "Rol eliminado", "Sistema", "@" + role.name));
+client.on("channelCreate", channel => { if (channel.guild) recordActivity(channel.guild.id, "Canal creado", "Sistema", "#" + channel.name); });
+client.on("channelDelete", channel => { if (channel.guild) recordActivity(channel.guild.id, "Canal eliminado", "Sistema", "#" + channel.name); });
+client.on("roleCreate", role => { if (role.guild) recordActivity(role.guild.id, "Rol creado", "Sistema", "@" + role.name); });
+client.on("roleDelete", role => { if (role.guild) recordActivity(role.guild.id, "Rol eliminado", "Sistema", "@" + role.name); });
+
 client.on("voiceStateUpdate", (oldState, newState) => {
   const member = newState.member || oldState.member;
   if (!member?.guild) return;
-  const action = !oldState.channelId && newState.channelId ? "Entró a voz" : oldState.channelId && !newState.channelId ? "Salió de voz" : "Cambió de voz";
-  recordActivity(member.guild.id, action, activityUser(member.user), newState.channel?.name || oldState.channel?.name || "Voz");
+  const action = !oldState.channelId && newState.channelId
+    ? "Entró a voz"
+    : oldState.channelId && !newState.channelId
+      ? "Salió de voz"
+      : "Cambió de voz";
+  recordActivity(
+    member.guild.id,
+    action,
+    activityUser(member.user),
+    newState.channel?.name || oldState.channel?.name || "Voz"
+  );
 });
+
 client.on("guildUpdate", (oldGuild, newGuild) => recordActivity(newGuild.id, "Servidor actualizado", "Sistema", newGuild.name));
-client.on("interactionCreate", interaction => {
-  if (interaction.guild && interaction.isChatInputCommand()) recordActivity(interaction.guild.id, "Comando", activityUser(interaction.user), "/" + interaction.commandName);
-});
+client.on("error", error => console.error("Nexus: Discord client error:", error));
 
-client.on("error", error => console.error("Discord client error:", error));
+const RATE = new Map();
 
-const dashboardHTML = `<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Nexus Control</title><style>\n:root{--bg:#08060d;--p:#130d1d;--p2:#1b1026;--line:#4b197c;--a:#8b2cff;--a2:#c16cff;--t:#f8f3ff;--m:#aa9bb8;--g:#57f287}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -10%,#35104f,#100819 38%,#08060d 75%);color:var(--t);font:15px system-ui,sans-serif}.app{min-height:100vh;display:flex}.side{width:245px;background:#09070eeb;border-right:1px solid #35134d;padding:22px 14px;position:sticky;top:0;height:100vh}.brand{font-size:25px;font-weight:900;padding:5px 12px 24px}.brand span{color:var(--a2);text-shadow:0 0 18px #8b2cff}.brand small{display:block;font-size:9px;color:#756980;letter-spacing:.2em}.nav-title,.eyebrow{font-size:10px;color:#86699a;letter-spacing:.18em;text-transform:uppercase}.nav-title{padding:10px}.nav button{width:100%;border:1px solid transparent;background:0;color:#a99caf;text-align:left;padding:12px;border-radius:10px;margin:2px 0;cursor:pointer}.nav button:hover,.nav button.active{color:#fff;background:linear-gradient(90deg,#29103d,#160b20);border-color:#56217b;box-shadow:0 0 18px #8b2cff22}.side-bottom{position:absolute;left:14px;right:14px;bottom:18px}.main{width:100%;max-width:1200px;padding:28px 32px}.top{display:flex;justify-content:space-between;align-items:center;gap:18px;margin-bottom:24px}.top h1{margin:4px 0 0;font-size:30px}.guild{width:auto!important;min-width:230px!important;margin:0!important}.hero,.card{background:linear-gradient(145deg,#1b1026f5,#0d0912f5);border:1px solid #42195b;border-radius:14px;box-shadow:0 0 25px #21072f33}.hero{padding:25px;margin-bottom:16px}.hero h2{font-size:27px;margin:5px 0}.card{padding:18px;margin-bottom:15px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:15px}.muted{color:var(--m);line-height:1.55}.stat{font-size:27px;font-weight:900;margin-top:5px}.purple{color:#d49aff}.btn{border:1px solid #7d2bc2;background:linear-gradient(135deg,#8b2cff,#60209e);color:#fff;border-radius:9px;padding:10px 14px;cursor:pointer;font-weight:800}.btn.secondary{background:#21152b;border-color:#4a3157}.btn.danger{background:#54202c;border-color:#873143}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.input,select,textarea{width:100%;background:#0a0710;border:1px solid #432052;color:#fff;border-radius:9px;padding:11px;margin:7px 0 14px;outline:0}.input:focus,select:focus,textarea:focus{border-color:#a34cff}label{display:block;font-size:13px;font-weight:700;color:#d9cce2}.pill{display:inline-flex;background:#241532;border:1px solid #512469;border-radius:999px;padding:5px 9px;font-size:12px}.dot{width:7px;height:7px;border-radius:50%;background:var(--g);box-shadow:0 0 8px var(--g);display:inline-block}.cmd,.q{background:#0b0810;border:1px solid #351642;border-radius:8px;padding:10px;margin:7px 0}.q textarea{min-height:70px}.login{max-width:480px;margin:14vh auto;padding:30px}.hidden{display:none!important}.toast{position:fixed;right:20px;bottom:20px;background:#20112b;border:1px solid #7d35a6;padding:12px 16px;border-radius:10px;display:none}@media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}.side{width:210px}.main{padding:20px}}@media(max-width:650px){.app{display:block}.side{position:relative;width:100%;height:auto;border:0;border-bottom:1px solid #35134d}.side-bottom{position:static;margin-top:12px}.nav{display:grid;grid-template-columns:1fr 1fr}.main{padding:16px}.grid,.grid2{grid-template-columns:1fr}.top{align-items:flex-start;flex-direction:column}.guild{width:100%!important}}\n</style></head><body>\n<div id=\"login\" class=\"card login hidden\"><div class=\"eyebrow\">Nexus Studio</div><h1>Nexus Control</h1><p class=\"muted\">Panel de administración con estilo oscuro y morado.</p><a class=\"btn\" href=\"/auth/discord\">Entrar con Discord →</a></div>\n<div id=\"app\" class=\"app hidden\"><aside class=\"side\"><div class=\"brand\">Nexus <span>Control</span><small>ADMINISTRATION PANEL</small></div><div class=\"nav-title\">GENERAL</div><div class=\"nav\"><button data-page=\"home\" class=\"active\">⌂ &nbsp; Inicio</button><button data-page=\"tickets\">◈ &nbsp; Tickets</button><button data-page=\"moderation\">◆ &nbsp; Moderación</button><button data-page=\"applications\">✦ &nbsp; Postulaciones</button><button data-page=\"vouches\">★ &nbsp; Vouches</button><button data-page=\"logs\">▤ &nbsp; Logs</button><button data-page=\"roles\">♙ &nbsp; Roles</button></div><div class=\"side-bottom\"><button class=\"btn secondary\" id=\"logout\" style=\"width:100%\">Cerrar sesión</button></div></aside>\n<main class=\"main\"><div class=\"top\"><div><div class=\"eyebrow\">Nexus Control Panel</div><h1 id=\"title\">Inicio</h1></div><select id=\"guild\" class=\"guild\"></select></div><section id=\"page\"></section></main></div><div id=\"toast\" class=\"toast\"></div>\n<script>\nconst $=s=>document.querySelector(s),state={guild:null,config:{},guilds:[]},titles={home:'Inicio',tickets:'Tickets',moderation:'Moderación',applications:'Postulaciones',vouches:'Vouches',logs:'Logs',roles:'Roles'};let current='home';\nasync function api(u,o){const r=await fetch(u,o);if(r.status===401)throw Error('auth');const j=await r.json();if(!r.ok)throw Error(j.error||'Error');return j}\nfunction esc(v){return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]))}\nfunction toast(t){const x=$('#toast');x.textContent=t;x.style.display='block';clearTimeout(window.tt);window.tt=setTimeout(()=>x.style.display='none',2200)}\nfunction commandLabels(x){const out=["/"+x.name];for(const o of (x.options||[])){if(o.type===1||o.type===2)out.push("/"+x.name+" "+o.name)}return out} function cmds(a){const dynamic=DASHBOARD_COMMANDS.flatMap(commandLabels);const list=[...new Set([...(a||[]),...dynamic])];return '<div class="card"><div class="row" style="justify-content:space-between"><h2>Comandos de Nexus</h2><span class="pill">Sincronizados con el bot</span></div>'+list.map(x=>'<div class="cmd">'+esc(x)+'</div>').join('')+'</div>'}
-async function save(p){state.config={...state.config,...p};await api('/api/config/'+state.guild.id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});toast('✓ Guardado correctamente')}\nasync function load(){state.config=await api('/api/config/'+state.guild.id);render(current)}\nfunction active(p){document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===p))}\nfunction render(p){current=p;active(p);$('#title').textContent=titles[p];const c=state.config;\nif(p==='home'){const open=c.openTickets||0,w=Object.values(c.warnings||{}).reduce((a,v)=>a+(v?.length||0),0),v=Object.values(c.vouches||{}).reduce((a,x)=>a+Number(x||0),0);$('#page').innerHTML='<div class=\"hero\"><div class=\"eyebrow\">BIENVENIDO A NEXUS</div><h2>Todo tu servidor, en un solo panel.</h2><p class=\"muted\">Tickets, moderación, postulaciones, vouches, logs y roles. Los comandos se sincronizan automáticamente con el código actual del bot.</p><span class=\"pill\"><span class=\"dot\"></span> Sistema conectado</span></div><div class=\"grid\"><div class=\"card\"><div class=\"muted\">Tickets abiertos</div><div class=\"stat\">'+open+'</div></div><div class=\"card\"><div class=\"muted\">Advertencias</div><div class=\"stat\">'+w+'</div></div><div class=\"card\"><div class=\"muted\">Vouches</div><div class=\"stat\">'+v+'</div></div><div class=\"card\"><div class=\"muted\">Estado</div><div class=\"stat purple\">ONLINE</div></div></div><div class=\"grid2\"><div class=\"card\"><h2>Configuración</h2><p class=\"muted\">Servidor: <b>'+esc(state.guild.name)+'</b></p><p class=\"muted\">Categoría: '+(c.categoryId?'<span class=\"pill\">'+esc(c.categoryId)+'</span>':'No configurada')+'</p><p class=\"muted\">Staff: '+(c.staffRoleId?'<span class=\"pill\">'+esc(c.staffRoleId)+'</span>':'No configurado')+'</p><p class=\"muted\">Logs: '+(c.logsChannelId?'<span class=\"pill\">'+esc(c.logsChannelId)+'</span>':'No configurado')+'</p></div><div class=\"card\"><h2>Acciones rápidas</h2><div class=\"row\"><button class=\"btn\" data-go=\"tickets\">Tickets</button><button class=\"btn secondary\" data-go=\"applications\">Postulaciones</button></div></div></div>';document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>render(b.dataset.go));return}\nif(p==='tickets'){$('#page').innerHTML='<div class=\"hero\"><div class=\"eyebrow\">TICKETS</div><h2>Sistema de soporte</h2><p class=\"muted\">Configura lo mismo que usa <code>/ticket setup</code>.</p></div><div class=\"card\"><div class=\"grid2\"><div><label>ID categoría</label><input class=\"input\" id=\"cat\" value=\"'+esc(c.categoryId||'')+'\"></div><div><label>ID rol Staff</label><input class=\"input\" id=\"staff\" value=\"'+esc(c.staffRoleId||'')+'\"></div></div><label>ID canal de logs</label><input class=\"input\" id=\"log\" value=\"'+esc(c.logsChannelId||'')+'\"><button class=\"btn\" id=\"save\">Guardar</button></div>'+cmds(['/ticket panel','/ticket setup','/ticket close','/ticket reopen','/ticket delete','/ticket claim','/ticket unclaim','/ticket add','/ticket remove','/ticket rename','/ticket transcript','/ticket list']);$('#save').onclick=()=>save({categoryId:$('#cat').value.trim()||null,staffRoleId:$('#staff').value.trim()||null,logsChannelId:$('#log').value.trim()||null});return}\nif(p==='moderation'){$('#page').innerHTML='<div class=\"hero\"><div class=\"eyebrow\">MODERATION</div><h2>Control y seguridad</h2><p class=\"muted\">Todos los comandos de moderación del bot están agrupados aquí.</p></div><div class=\"card\"><label>Canal de logs</label><input class=\"input\" id=\"ml\" value=\"'+esc(c.logsChannelId||'')+'\"><button class=\"btn\" id=\"save\">Guardar</button></div>'+cmds(['/ban','/unban','/kick','/timeout','/untimeout','/warn','/warnings','/clearwarns','/clear','/lock','/unlock','/slowmode','/nick','/userinfo','/serverinfo']);$('#save').onclick=()=>save({logsChannelId:$('#ml').value.trim()||null});return}\nif(p==='applications'){const box=(key,title,arr)=>'<div class=\"card\"><div style=\"display:flex;justify-content:space-between;gap:10px\"><h2>'+title+'</h2><button class=\"btn secondary\" data-add=\"'+key+'\">+ Añadir</button></div><p class=\"muted\">Estas preguntas serán usadas por el comando correspondiente.</p><div>'+arr.map((q,i)=>'<div class=\"q\"><b class=\"purple\">'+(i+1)+'.</b><textarea data-q=\"'+key+'\">'+esc(q)+'</textarea><button class=\"btn danger\" data-del=\"'+key+'\" data-i=\"'+i+'\">Eliminar</button></div>').join('')+'</div><button class=\"btn\" data-save=\"'+key+'\">Guardar preguntas</button></div>';$('#page').innerHTML='<div class=\"hero\"><div class=\"eyebrow\">APPLICATIONS</div><h2>Panel de postulaciones</h2><p class=\"muted\">Aquí puedes cambiar exactamente las preguntas de <b>/post-staff</b> y <b>/post-alter</b>.</p></div>'+box('staffQuestions','Post-Staff',c.staffQuestions||[])+box('alterQuestions','Post-Alter',c.alterQuestions||[])+cmds(['/post-staff','/post-alter']);document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{state.config[b.dataset.add]=[...(state.config[b.dataset.add]||[]),'Nueva pregunta'];render('applications')});document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{state.config[b.dataset.del].splice(+b.dataset.i,1);render('applications')});document.querySelectorAll('[data-save]').forEach(b=>b.onclick=()=>save({[b.dataset.save]:[...document.querySelectorAll('[data-q=\"'+b.dataset.save+'\"]')].map(x=>x.value.trim()).filter(Boolean)}));return}\nif(p==='vouches'){const total=Object.values(c.vouches||{}).reduce((a,x)=>a+Number(x||0),0);$('#page').innerHTML='<div class=\"hero\"><div class=\"eyebrow\">VOUCHES</div><h2>Reputación del servidor</h2><p class=\"muted\">Total registrado: <b>'+total+'</b>. Puedes limitar el comando a un canal.</p></div><div class=\"card\"><label>ID canal de vouches</label><input class=\"input\" id=\"vc\" value=\"'+esc(c.vouchChannelId||'')+'\" placeholder=\"Vacío = cualquier canal\"><button class=\"btn\" id=\"save\">Guardar</button></div>'+cmds(['/vouch']);$('#save').onclick=()=>save({vouchChannelId:$('#vc').value.trim()||null});return}\nif(p==='logs'){$('#page').innerHTML='<div class=\"hero\"><div class=\"eyebrow\">LOGS</div><h2>Registro de actividad</h2><p class=\"muted\">Canal usado por los logs del sistema.</p></div><div class=\"card\"><label>ID canal de logs</label><input class=\"input\" id=\"lg\" value=\"'+esc(c.logsChannelId||'')+'\"><div class=\"row\"><button class=\"btn\" id=\"save\">Guardar</button><button class=\"btn secondary\" id=\"off\">Desactivar</button></div></div>'+cmds(['/modlog set','/modlog off']);$('#save').onclick=()=>save({logsChannelId:$('#lg').value.trim()||null});$('#off').onclick=()=>save({logsChannelId:null});return}\nif(p==='roles'){$('#page').innerHTML='<div class=\"hero\"><div class=\"eyebrow\">ROLES</div><h2>Permisos de Nexus</h2><p class=\"muted\">El Staff configurado aquí se usa en tickets.</p></div><div class=\"card\"><label>ID rol Staff</label><input class=\"input\" id=\"rl\" value=\"'+esc(c.staffRoleId||'')+'\"><button class=\"btn\" id=\"save\">Guardar</button></div><div class=\"card\"><h2>Acceso completo</h2><span class=\"pill\">1554252558359470182</span></div>'+cmds(['/ticket setup']);$('#save').onclick=()=>save({staffRoleId:$('#rl').value.trim()||null})}}\nasync function boot(){try{const me=await api('/api/me');if(!me.authenticated){$('#login').classList.remove('hidden');return}$('#app').classList.remove('hidden');state.guilds=await api('/api/guilds');if(!state.guilds.length)throw Error('No tienes un servidor administrable con Nexus.');state.guild=state.guilds[0];$('#guild').innerHTML=state.guilds.map(g=>'<option value=\"'+esc(g.id)+'\">'+esc(g.name)+'</option>').join('');$('#guild').onchange=async()=>{state.guild=state.guilds.find(g=>g.id===$('#guild').value)||state.guild[0];await load()};await load()}catch(e){if(e.message==='auth')location.reload();else document.body.innerHTML='<div class=\"card login\"><h1>Nexus Control</h1><p>'+esc(e.message)+'</p><a class=\"btn\" href=\"/auth/discord\">Volver</a></div>'}}\ndocument.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>render(b.dataset.page));$('#logout').onclick=()=>location.href='/auth/logout';boot();\n</script></body></html>`;
-const server = http.createServer(async (req,res) => {
- try {
-  const requestPath=new URL(req.url,"http://localhost").pathname;
-  if(requestPath==="/"||requestPath==="/index.html"){res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store"});return res.end(fs.readFileSync(path.join(__dirname,"dashboard-final.html"),"utf8"))}
-  if(requestPath==="/auth/discord"){const redirect=encodeURIComponent(DISCORD_REDIRECT_URI);return res.writeHead(302,{Location:"https://discord.com/oauth2/authorize?client_id="+CLIENT_ID+"&response_type=code&redirect_uri="+redirect+"&scope=identify%20guilds"}).end()}
-  if(requestPath.startsWith("/auth/discord/callback")){const code=new URL(req.url,"http://localhost").searchParams.get("code");if(!code||!DISCORD_CLIENT_SECRET)return res.end(JSON.stringify({error:"Falta configurar DISCORD_CLIENT_SECRET."}));const token=await discordRequest("https://discord.com/api/oauth2/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:CLIENT_ID,client_secret:DISCORD_CLIENT_SECRET,grant_type:"authorization_code",code,redirect_uri:DISCORD_REDIRECT_URI}).toString()});if(token.status!==200)return res.end(JSON.stringify({error:"OAuth2 rechazado por Discord.",status:token.status}));const me=await discordRequest("https://discord.com/api/users/@me",{headers:{Authorization:"Bearer "+token.body.access_token}});const gs=await discordRequest("https://discord.com/api/users/@me/guilds",{headers:{Authorization:"Bearer "+token.body.access_token}});const id=require("node:crypto").randomUUID();sessions.set(id,{user:me.body,guilds:gs.body.filter(g=>g.id===GUILD_ID && ((Number(g.permissions)&0x20)===0x20||(Number(g.permissions)&0x8)===0x8))});res.writeHead(302,{"Set-Cookie":"dash_session="+id+"; HttpOnly; Path=/; SameSite=Lax","Location":"/"});return res.end()}
-  if(requestPath==="/auth/logout"){res.writeHead(302,{"Set-Cookie":"dash_session=; Max-Age=0; Path=/","Location":"/"});return res.end()}
-  if(requestPath==="/api/me"){const u=dashboardUser(req);res.writeHead(200,{"Content-Type":"application/json"});return res.end(JSON.stringify({authenticated:!!u,user:u?.user||null}))}
-  if(requestPath==="/api/guilds"){const u=dashboardUser(req);if(!u)return sendJSON(res,401,{error:"No autenticado"});res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store"});return res.end(JSON.stringify(u.guilds.filter(g=>g.id===GUILD_ID)))}
-  if(requestPath.startsWith("/api/activity/")){
-    const u=dashboardUser(req); if(!u)return sendJSON(res,401,{error:"No autenticado"});
-    const guildId=requestPath.split("/").pop(); if(guildId!==GUILD_ID || !u.guilds.some(g=>g.id===guildId))return sendJSON(res,403,{error:"Servidor no permitido"});
-    const limit=Math.min(Math.max(Number(new URL(req.url,"http://localhost").searchParams.get("limit")||100),1),500);
-    res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store"});
-    return res.end(JSON.stringify((getGuild(guildId).activity||[]).slice(0,limit)));
+function rateLimit(key, limit, windowMs) {
+  const now = Date.now();
+  const bucket = RATE.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    RATE.set(key, { count: 1, resetAt: now + windowMs });
+    return true;
   }
-  if(requestPath.startsWith("/api/ai/") && req.method==="POST"){
-    const u=dashboardUser(req); if(!u)return sendJSON(res,401,{error:"No autenticado"});
-    const guildId=requestPath.split("/").pop(); if(!u.guilds.some(g=>g.id===guildId))return sendJSON(res,403,{error:"Sin acceso"});
-    let body=""; req.on("data",x=>body+=x); req.on("end",()=>{
-      try{
-        const q=String(JSON.parse(body||"{}").question||"").trim().toLowerCase(), g=getGuild(guildId), events=g.activity||[];
-        const open=Object.values(g.tickets||{}).filter(t=>!t.closed).length;
-        let answer;
-        if(!q) answer="Escribe una pregunta.";
-        else if(q.includes("ticket")) answer="Hay "+open+" ticket(s) abiertos ahora mismo.";
-        else if(q.includes("qué ha pasado")||q.includes("que ha pasado")||q.includes("actividad")||q.includes("últimamente")||q.includes("ultimamente")) answer="Tengo "+events.length+" eventos registrados. "+(events[0]?"El último fue "+events[0].type+" — "+events[0].details+".":"Todavía no hay actividad.");
-        else if(q.includes("moder")||q.includes("ban")||q.includes("warn")){const m=events.filter(e=>["Ban","Unban","Comando"].includes(e.type));answer="Hay "+m.length+" eventos recientes relacionados con moderación.";}
-        else if(q.includes("error")||q.includes("bug")||q.includes("problema")) answer="Puedo analizar la actividad de Discord. Para errores internos de Node hay que revisar los logs del servicio.";
-        else answer="Puedo analizar actividad, tickets y moderación. Prueba: “¿qué ha pasado últimamente?”, “¿cuántos tickets hay?” o “¿qué actividad de moderación hubo?”.";
-        res.writeHead(200,{"Content-Type":"application/json"}); res.end(JSON.stringify({answer}));
-      }catch{res.writeHead(400,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"Pregunta inválida"}));}
-    }); return;
-  }
-  if(requestPath.startsWith("/api/panel-config/")){
-    const guildId=requestPath.split("/").pop();
-    if(guildId!==GUILD_ID)return sendJSON(res,403,{error:"Servidor no permitido"});
-    const g=getGuild(guildId);
-    const payload={
-      categoryId:g.categoryId||null,
-      staffRoleId:g.staffRoleId||null,
-      logsChannelId:g.logsChannelId||null,
-      vouchChannelId:g.vouchChannelId||null,
-      staffQuestions:Array.isArray(g.staffQuestions)?g.staffQuestions.slice(0,20):[],
-      alterQuestions:Array.isArray(g.alterQuestions)?g.alterQuestions.slice(0,20):[],
-      configVersion:g.configVersion||0
-    };
-    res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store"});
-    return res.end(JSON.stringify(payload));
-  }
-  if(requestPath.startsWith("/api/sync/")){
-    const guildId=requestPath.split("/").pop();
-    const secret=req.headers["x-panel-sync-secret"];
-    if(!PANEL_SYNC_SECRET || secret!==PANEL_SYNC_SECRET) return sendJSON(res,401,{error:"No autorizado"});
-    if(guildId!==GUILD_ID) return sendJSON(res,403,{error:"Servidor no permitido"});
-    res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store"});
-    return res.end(JSON.stringify(guildConfig(guildId)));
-  }
-  if(requestPath.startsWith("/api/config/")){const u=dashboardUser(req);if(!u)return sendJSON(res,401,{error:"No autenticado"});const guildId=req.url.split("/").pop();if(guildId!==GUILD_ID || !u.guilds.some(g=>g.id===guildId))return sendJSON(res,403,{error:"Servidor no permitido"});if(req.method==="GET"){res.writeHead(200,{"Content-Type":"application/json"});return res.end(JSON.stringify(guildConfig(guildId)))}let body="";req.on("data",x=>body+=x);req.on("end",()=>{try{const p=JSON.parse(body||"{}"),g=getGuild(guildId);for(const k of ["categoryId","staffRoleId","logsChannelId","vouchChannelId"])if(Object.prototype.hasOwnProperty.call(p,k))g[k]=p[k]||null;for(const k of ["staffQuestions","alterQuestions"])if(Array.isArray(p[k]))g[k]=p[k].filter(x=>typeof x==="string"&&x.trim()).slice(0,20);g.configVersion=Date.now();saveDB();res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store"});res.end(JSON.stringify(guildConfig(guildId)))}catch{res.writeHead(400,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"JSON inválido"}))}});return}
-  if(req.method==="GET"){res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store"});return res.end(dashboardHTML)}
-  res.writeHead(404,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"Ruta no encontrada"}));
- }catch(e){console.error("Dashboard error:",e);res.writeHead(500,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"Error interno del dashboard."}))}
-});
-setInterval(() => { try { saveDB(); } catch {} }, 5000);
-setInterval(() => { syncPanelConfig().catch(() => {}); }, 2500);
-server.listen(PORT,"0.0.0.0",()=>console.log("Health server en puerto "+PORT));
-const RUN_BOT = process.env.RUN_BOT === "true" || !process.env.RENDER_SERVICE_ID;
-if (RUN_BOT) {
-  if (!TOKEN) {
-    console.error("FATAL: falta DISCORD_TOKEN (también acepta BOT_TOKEN o TOKEN). El bot no puede iniciar.");
-  } else {
-    client.login(TOKEN).then(()=>console.log("Nexus conectado a Discord correctamente.")).catch(error=>{
-      console.error("No se pudo iniciar sesión en Discord:", error?.message || error);
-      process.exit(1);
-    });
-  }
-} else {
-  console.log("Servicio de Dashboard: bot Discord desactivado.");
+  bucket.count++;
+  return bucket.count <= limit;
 }
+
+function dashboardGuildAllowed(session, guildId) {
+  return guildId === GUILD_ID && session.guilds.some(g => g.id === guildId);
+}
+
+const server = http.createServer(async (req, res) => {
+  try {
+    const request = new URL(req.url || "/", "http://localhost");
+    const requestPath = request.pathname;
+
+    if (requestPath === "/health" || requestPath === "/api/health/dashboard") {
+      return sendJSON(res, 200, {
+        ok: true,
+        service: "Nexus",
+        guildId: GUILD_ID,
+        botReady: client.isReady(),
+        dataVersion: DB_VERSION,
+        timestamp: Date.now()
+      });
+    }
+
+    if (requestPath === "/" || requestPath === "/index.html") {
+      const file = path.join(__dirname, "dashboard-final.html");
+      if (!fs.existsSync(file)) return sendJSON(res, 500, { error: "Falta dashboard-final.html" });
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      return res.end(fs.readFileSync(file, "utf8"));
+    }
+
+    if (requestPath === "/auth/discord") {
+      const ip = req.socket.remoteAddress || "unknown";
+      if (!rateLimit(ip, 20, 60_000)) return sendJSON(res, 429, { error: "Demasiadas solicitudes. Espera un momento." });
+      if (!DISCORD_CLIENT_SECRET) return sendJSON(res, 503, { error: "OAuth de Discord no está configurado." });
+
+      const redirect = encodeURIComponent(DISCORD_REDIRECT_URI);
+      return redirect
+        ? res.writeHead(302, {
+            Location:
+              "https://discord.com/oauth2/authorize" +
+              "?client_id=" + CLIENT_ID +
+              "&response_type=code" +
+              "&redirect_uri=" + redirect +
+              "&scope=identify%20guilds"
+          }).end()
+        : undefined;
+    }
+
+    if (requestPath === "/auth/discord/callback") {
+      const code = request.searchParams.get("code");
+      if (!code || !DISCORD_CLIENT_SECRET) return sendJSON(res, 400, { error: "OAuth2 inválido o no configurado." });
+
+      const token = await discordRequest("https://discord.com/api/oauth2/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: CLIENT_ID,
+          client_secret: DISCORD_CLIENT_SECRET,
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: DISCORD_REDIRECT_URI
+        }).toString()
+      });
+
+      if (token.status !== 200 || !token.body.access_token) return sendJSON(res, 502, { error: "Discord rechazó el inicio de sesión." });
+
+      const me = await discordRequest("https://discord.com/api/users/@me", {
+        headers: { Authorization: "Bearer " + token.body.access_token }
+      });
+      const guilds = await discordRequest("https://discord.com/api/users/@me/guilds", {
+        headers: { Authorization: "Bearer " + token.body.access_token }
+      });
+
+      const allowed = Array.isArray(guilds.body)
+        ? guilds.body.filter(g =>
+            g &&
+            g.id === GUILD_ID &&
+            ((Number(g.permissions) & 0x20) === 0x20 || (Number(g.permissions) & 0x8) === 0x8)
+          )
+        : [];
+
+      if (!allowed.length) return sendJSON(res, 403, { error: "No tienes permisos para administrar el servidor configurado." });
+
+      const sessionId = crypto.randomUUID();
+      sessions.set(sessionId, {
+        user: me.body || {},
+        guilds: allowed,
+        csrf: crypto.randomUUID(),
+        expiresAt: Date.now() + SESSION_TTL_MS
+      });
+
+      setSessionCookie(res, sessionId);
+      return redirect(res, "/");
+    }
+
+    if (requestPath === "/auth/logout") {
+      const cookies = parseCookies(req);
+      if (cookies.dash_session) sessions.delete(cookies.dash_session);
+      clearSessionCookie(res);
+      return redirect(res, "/");
+    }
+
+    if (requestPath === "/api/me") {
+      const session = dashboardUser(req);
+      return sendJSON(res, 200, {
+        authenticated: Boolean(session),
+        user: session?.user || null,
+        csrf: session?.csrf || null,
+        expiresAt: session?.expiresAt || 0
+      });
+    }
+
+    if (requestPath === "/api/guilds") {
+      const session = dashboardUser(req);
+      if (!session) return sendJSON(res, 401, { error: "No autenticado" });
+      return sendJSON(res, 200, session.guilds.filter(g => g.id === GUILD_ID));
+    }
+
+    if (requestPath === "/api/commands") return sendJSON(res, 200, DASHBOARD_COMMANDS);
+
+    if (requestPath.startsWith("/api/activity/")) {
+      const session = requireSession(req, res);
+      if (!session) return;
+      const guildId = requestPath.split("/").pop();
+      if (!dashboardGuildAllowed(session, guildId)) return sendJSON(res, 403, { error: "Servidor no permitido." });
+      const limit = Math.min(Math.max(Number(request.searchParams.get("limit") || 100), 1), 500);
+      const g = getGuild(guildId, dashboardDB);
+      return sendJSON(res, 200, (g.activity || []).slice(0, limit));
+    }
+
+    if (requestPath.startsWith("/api/config/")) {
+      const session = requireSession(req, res);
+      if (!session) return;
+      const guildId = requestPath.split("/").pop();
+      if (!dashboardGuildAllowed(session, guildId)) return sendJSON(res, 403, { error: "Servidor no permitido." });
+
+      if (req.method === "GET") return sendJSON(res, 200, publicGuildConfig(dashboardDB, guildId));
+      if (req.method !== "POST") return sendJSON(res, 405, { error: "Método no permitido." });
+      if (!requireCSRF(req, res, session)) return;
+
+      let payload;
+      try { payload = JSON.parse(await readBody(req)); }
+      catch (error) { return sendJSON(res, 400, { error: error.message === "Payload demasiado grande." ? error.message : "JSON inválido." }); }
+
+      const g = getGuild(guildId, dashboardDB);
+      const before = g.configVersion || 0;
+
+      if (Object.prototype.hasOwnProperty.call(payload, "categoryId")) g.categoryId = sanitizeSnowflake(payload.categoryId);
+      if (Object.prototype.hasOwnProperty.call(payload, "staffRoleId")) g.staffRoleId = sanitizeSnowflake(payload.staffRoleId);
+      if (Object.prototype.hasOwnProperty.call(payload, "logsChannelId")) g.logsChannelId = sanitizeSnowflake(payload.logsChannelId);
+      if (Object.prototype.hasOwnProperty.call(payload, "vouchChannelId")) g.vouchChannelId = sanitizeSnowflake(payload.vouchChannelId);
+      if (Object.prototype.hasOwnProperty.call(payload, "staffQuestions")) g.staffQuestions = sanitizeQuestions(payload.staffQuestions, DEFAULT_STAFF_QUESTIONS);
+      if (Object.prototype.hasOwnProperty.call(payload, "alterQuestions")) g.alterQuestions = sanitizeQuestions(payload.alterQuestions, DEFAULT_ALTER_QUESTIONS);
+
+      const now = Date.now();
+      g.configVersion = Math.max(now, before + 1);
+      g.updatedAt = now;
+      dashboardDB.guilds[guildId] = g;
+      saveDashboardDBNow("configuración");
+
+      return sendJSON(res, 200, publicGuildConfig(dashboardDB, guildId));
+    }
+
+    if (requestPath.startsWith("/api/ai/") && req.method === "POST") {
+      const session = requireSession(req, res);
+      if (!session) return;
+      if (!requireCSRF(req, res, session)) return;
+
+      const guildId = requestPath.split("/").pop();
+      if (!dashboardGuildAllowed(session, guildId)) return sendJSON(res, 403, { error: "Sin acceso." });
+
+      let payload;
+      try { payload = JSON.parse(await readBody(req, 32 * 1024)); }
+      catch { return sendJSON(res, 400, { error: "JSON inválido." }); }
+
+      const q = String(payload.question || "").trim().toLowerCase();
+      const g = getGuild(guildId, dashboardDB);
+      const events = g.activity || [];
+      const publicData = publicGuildConfig(dashboardDB, guildId);
+      let answer;
+
+      if (!q) answer = "Escribe una pregunta.";
+      else if (q.includes("ticket")) answer = "Hay " + publicData.openTickets + " ticket(s) abiertos ahora mismo.";
+      else if (q.includes("actividad") || q.includes("últimamente") || q.includes("ultimamente") || q.includes("qué ha pasado") || q.includes("que ha pasado")) {
+        answer = "Tengo " + events.length + " eventos sincronizados. " +
+          (events[0] ? "El último fue " + events[0].type + " — " + events[0].details + "." : "Todavía no hay actividad.");
+      } else if (q.includes("moder") || q.includes("ban") || q.includes("warn")) {
+        const moderation = events.filter(event => ["Ban", "Unban", "Comando"].includes(event.type));
+        answer = "Hay " + moderation.length + " eventos recientes relacionados con moderación.";
+      } else if (q.includes("sync") || q.includes("sincron")) {
+        answer = publicData.botOnline
+          ? "El bot está sincronizando. Última sincronización: " + (publicData.lastBotSyncAt ? new Date(publicData.lastBotSyncAt).toLocaleString("es-ES") : "desconocida") + "."
+          : "No tengo una sincronización reciente del bot.";
+      } else {
+        answer = "Puedo revisar tickets, actividad, moderación y sincronización.";
+      }
+
+      return sendJSON(res, 200, { answer });
+    }
+
+    if (requestPath.startsWith("/api/sync/")) {
+      const guildId = requestPath.split("/").pop();
+      if (guildId !== GUILD_ID) return sendJSON(res, 403, { error: "Servidor no permitido." });
+      if (!PANEL_SYNC_SECRET || req.headers["x-panel-sync-secret"] !== PANEL_SYNC_SECRET) return sendJSON(res, 401, { error: "No autorizado." });
+
+      const ip = req.socket.remoteAddress || "sync";
+      if (!rateLimit(ip, 90, 60_000)) return sendJSON(res, 429, { error: "Límite de sincronización alcanzado." });
+
+      const g = getGuild(guildId, dashboardDB);
+
+      if (req.method === "GET") return sendJSON(res, 200, publicGuildConfig(dashboardDB, guildId));
+      if (req.method !== "POST") return sendJSON(res, 405, { error: "Método no permitido." });
+
+      let payload;
+      try { payload = JSON.parse(await readBody(req)); }
+      catch { return sendJSON(res, 400, { error: "JSON inválido." }); }
+
+      const incomingVersion = Math.max(0, Number(payload.configVersion) || 0);
+      const localVersion = Math.max(0, Number(g.configVersion) || 0);
+      const shouldApplyConfig = incomingVersion > localVersion || localVersion === 0;
+
+      if (shouldApplyConfig) {
+        g.categoryId = sanitizeSnowflake(payload.categoryId);
+        g.staffRoleId = sanitizeSnowflake(payload.staffRoleId);
+        g.logsChannelId = sanitizeSnowflake(payload.logsChannelId);
+        g.vouchChannelId = sanitizeSnowflake(payload.vouchChannelId);
+        g.staffQuestions = sanitizeQuestions(payload.staffQuestions, DEFAULT_STAFF_QUESTIONS);
+        g.alterQuestions = sanitizeQuestions(payload.alterQuestions, DEFAULT_ALTER_QUESTIONS);
+        g.configVersion = incomingVersion;
+        g.updatedAt = Date.now();
+      }
+
+      if (Array.isArray(payload.activity)) {
+        g.activity = payload.activity.filter(x => x && typeof x === "object").slice(0, 500);
+      }
+
+      g.botSnapshot = {
+        serverName: String(payload.serverName || "").slice(0, 100),
+        botOnline: Boolean(payload.botOnline),
+        syncedAt: Number(payload.syncedAt) || Date.now(),
+        openTickets: Math.max(0, Number(payload.openTickets) || 0),
+        warnings: Math.max(0, Number(payload.warnings) || 0),
+        vouches: Math.max(0, Number(payload.vouches) || 0)
+      };
+
+      dashboardDB.guilds[guildId] = g;
+      saveDashboardDBNow("sincronización bot");
+
+      return sendJSON(res, 200, {
+        acceptedVersion: g.configVersion || 0,
+        applied: shouldApplyConfig
+      });
+    }
+
+    return sendJSON(res, 404, { error: "Ruta no encontrada." });
+  } catch (error) {
+    console.error("Nexus: dashboard/server error:", error);
+    return sendJSON(res, 500, { error: "Error interno del servicio." });
+  }
+});
+
+if (dashboardLoaded.recovered) {
+  try { saveDashboardDBNow("recuperación de backup"); } catch {}
+}
+
+setInterval(() => {
+  if (!dbDirty) return;
+  try { saveDBNow("flush periódico"); }
+  catch (error) { console.error("Nexus: flush periódico falló:", error); }
+}, 5000);
+
+server.listen(PORT, "0.0.0.0", () => {
+  console.log("Nexus: servidor HTTP en puerto " + PORT + ".");
+  console.log("Nexus: Dashboard " + DASHBOARD_URL);
+});
+
+async function startBot() {
+  if (!TOKEN) {
+    console.error("Nexus: falta DISCORD_TOKEN/BOT_TOKEN/TOKEN. El dashboard puede seguir funcionando, pero el bot no arrancará.");
+    return;
+  }
+  try {
+    await client.login(TOKEN);
+  } catch (error) {
+    console.error("Nexus: no se pudo iniciar sesión en Discord:", error.message);
+    process.exitCode = 1;
+  }
+}
+
+async function shutdown(signal) {
+  console.log("Nexus: apagando por " + signal + "...");
+  try { if (dbDirty) saveDBNow("apagado"); else saveDB("apagado"); } catch {}
+  try { saveDashboardDBNow("apagado"); } catch {}
+  try { client.destroy(); } catch {}
+  if (dbSaveTimer) clearTimeout(dbSaveTimer);
+  if (globalThis.__panelSyncTimer) clearInterval(globalThis.__panelSyncTimer);
+  if (globalThis.__panelPushTimer) clearInterval(globalThis.__panelPushTimer);
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 5000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("beforeExit", () => {
+  try { if (dbDirty) saveDBNow("beforeExit"); } catch {}
+});
+process.on("unhandledRejection", error => console.error("Nexus: unhandled rejection:", error));
+process.on("uncaughtException", error => {
+  console.error("Nexus: uncaught exception:", error);
+  try { if (dbDirty) saveDBNow("uncaughtException"); } catch {}
+});
+
+const RUN_BOT = process.env.RUN_BOT === "true" || !process.env.RENDER_SERVICE_ID;
+if (RUN_BOT) startBot();
+else console.log("Nexus: modo Dashboard activo (RUN_BOT=false).");
