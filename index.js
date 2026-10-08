@@ -36,6 +36,12 @@ const DASHBOARD_FILE = path.join(DATA_DIR, "dashboard-data.json");
 const DB_VERSION = 4;
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 128 * 1024;
+const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "Dent2026";
+const MAX_DASHBOARD_SESSIONS = 2;
+const DASHBOARD_OWNERS = [
+  { role: "Dueño", name: "Camtrax2024" },
+  { role: "Dev", name: "srkid" }
+];
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -501,6 +507,46 @@ function parseCookies(req) {
 }
 
 const sessions = new Map();
+const panelGates = new Map();
+
+function cleanupDashboardSessions() {
+  const now = Date.now();
+  for (const [id, session] of sessions) {
+    if (session.expiresAt <= now) sessions.delete(id);
+  }
+}
+
+function cleanupPanelGates() {
+  const now = Date.now();
+  for (const [id, gate] of panelGates) {
+    if (gate.expiresAt <= now) panelGates.delete(id);
+  }
+}
+
+function panelGateUser(req) {
+  cleanupPanelGates();
+  const cookies = parseCookies(req);
+  const id = cookies.panel_gate;
+  if (!id) return null;
+  const gate = panelGates.get(id);
+  if (!gate || gate.expiresAt <= Date.now()) {
+    if (id) panelGates.delete(id);
+    return null;
+  }
+  return gate;
+}
+
+function setPanelGateCookie(res, id) {
+  res.setHeader(
+    "Set-Cookie",
+    "panel_gate=" + encodeURIComponent(id) +
+      "; HttpOnly; Path=/; SameSite=Lax; Secure; Max-Age=900"
+  );
+}
+
+function clearPanelGateCookie(res) {
+  res.setHeader("Set-Cookie", "panel_gate=; HttpOnly; Path=/; SameSite=Lax; Secure; Max-Age=0");
+}
 
 function dashboardUser(req) {
   const cookies = parseCookies(req);
@@ -674,17 +720,25 @@ function panelEmbed() {
   return embed;
 }
 
-function panelComponents() {
+function findGuildEmoji(guild, names, fallback) {
+  for (const name of names) {
+    const found = guild.emojis.cache.find(e => e.name?.toLowerCase() === String(name).toLowerCase());
+    if (found) return { id: found.id, name: found.name, animated: found.animated };
+  }
+  return fallback;
+}
+
+function panelComponents(guild) {
   return [
     new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId("ticket_create")
         .setPlaceholder("Haz una selección • Select a category")
         .addOptions(
-          { label: "Soporte", description: "Obtén ayuda del staff.", value: "support", emoji: EMOJIS.support },
-          { label: "Rewards", description: "Reclama tu recompensa.", value: "rewards", emoji: EMOJIS.rewards },
-          { label: "Postulaciones", description: "Envía una postulación al equipo.", value: "applications", emoji: "📝" },
-          { label: "Ally", description: "Cualquier otra consulta.", value: "ally", emoji: "🤝" }
+          { label: "Soporte", description: "Obtén ayuda del staff.", value: "support", emoji: findGuildEmoji(guild, ["staff_support","support","soporte"], EMOJIS.support) },
+          { label: "Rewards", description: "Reclama tu recompensa.", value: "rewards", emoji: findGuildEmoji(guild, ["reclaim_rewards","reclaim","rewards"], EMOJIS.rewards) },
+          { label: "Postulaciones", description: "Envía una postulación al equipo.", value: "applications", emoji: findGuildEmoji(guild, ["staff_postulacion","staff_application","postulaciones"], "📝") },
+          { label: "Ally", description: "Cualquier otra consulta.", value: "ally", emoji: findGuildEmoji(guild, ["owner_ally","ally"], "🤝") }
         )
     )
   ];
@@ -1156,6 +1210,28 @@ const commands = [
     .setDescription("Añade un vouch a un usuario.")
     .addUserOption(o => o.setName("usuario").setDescription("Usuario que recibe el vouch.").setRequired(true))
     .addStringOption(o => o.setName("mensaje").setDescription("Mensaje del vouch.").setRequired(true))
+,
+  new SlashCommandBuilder()
+    .setName("emoji")
+    .setDescription("Gestiona emojis personalizados del servidor.")
+    .addSubcommand(s => s.setName("lista").setDescription("Muestra los emojis personalizados por categoría."))
+    .addSubcommand(s => s
+      .setName("crear")
+      .setDescription("Crea un emoji personalizado desde una imagen.")
+      .addStringOption(o => o.setName("nombre").setDescription("Nombre del emoji.").setRequired(true))
+      .addStringOption(o => o.setName("categoria").setDescription("Tipo de emoji.").setRequired(true)
+        .addChoices(
+          { name: "Staff", value: "staff" },
+          { name: "Moderación", value: "moderacion" },
+          { name: "Owner", value: "owner" },
+          { name: "Reclaim", value: "reclaim" },
+          { name: "General", value: "general" }
+        ))
+      .addAttachmentOption(o => o.setName("imagen").setDescription("Imagen del emoji.").setRequired(true)))
+    .addSubcommand(s => s
+      .setName("borrar")
+      .setDescription("Elimina un emoji personalizado.")
+      .addStringOption(o => o.setName("id").setDescription("ID del emoji.").setRequired(true)))
 ].map(c => c.toJSON());
 
 const client = new Client({
@@ -1219,7 +1295,7 @@ async function handleTicket(interaction) {
     if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Necesitas permisos de Staff.", ephemeral: true });
     const target = interaction.options.getChannel("canal") || channel;
     if (!target?.isTextBased()) return interaction.reply({ content: "❌ Ese canal no admite mensajes.", ephemeral: true });
-    await target.send({ embeds: [panelEmbed()], components: panelComponents() });
+    await target.send({ embeds: [panelEmbed()], components: panelComponents(interaction.guild) });
     return interaction.reply({ content: "✅ Panel enviado en " + target + ".", ephemeral: true });
   }
 
@@ -1590,6 +1666,62 @@ client.on("interactionCreate", async interaction => {
             .setTimestamp()
         ]
       });
+    }
+
+    if (name === "emoji") {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageEmojisAndStickers)) {
+        return interaction.reply({ content: "❌ Necesitas **Gestionar expresiones** para usar este comando.", ephemeral: true });
+      }
+
+      const sub = interaction.options.getSubcommand();
+      if (sub === "lista") {
+        const emojis = [...interaction.guild.emojis.cache.values()];
+        if (!emojis.length) return interaction.reply({ content: "📦 Este servidor no tiene emojis personalizados.", ephemeral: true });
+        const groups = { staff: [], moderacion: [], owner: [], reclaim: [], general: [] };
+        for (const e of emojis) {
+          const n = e.name || "sin_nombre";
+          const key = n.toLowerCase();
+          const group = key.startsWith("staff_") ? "staff"
+            : key.startsWith("mod_") || key.startsWith("moderacion_") ? "moderacion"
+            : key.startsWith("owner_") ? "owner"
+            : key.startsWith("reclaim_") ? "reclaim"
+            : "general";
+          groups[group].push(e);
+        }
+        const lines = [
+          "🛡️ **STAFF:** " + (groups.staff.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—"),
+          "🔨 **MODERACIÓN:** " + (groups.moderacion.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—"),
+          "👑 **OWNER:** " + (groups.owner.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—"),
+          "🎟️ **RECLAIM:** " + (groups.reclaim.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—"),
+          "✨ **GENERAL:** " + (groups.general.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—")
+        ];
+        return interaction.reply({
+          embeds: [new EmbedBuilder().setColor(COLOR.purple).setTitle("✨ Emojis personalizados").setDescription(lines.join("\n\n")).setFooter({ text: BOT_BRAND + " • Emoji Manager" })]
+        });
+      }
+
+      if (sub === "crear") {
+        const rawName = interaction.options.getString("nombre", true).toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 32);
+        const categoria = interaction.options.getString("categoria", true);
+        const image = interaction.options.getAttachment("imagen", true);
+        if (!image.contentType?.startsWith("image/")) return interaction.reply({ content: "❌ La imagen debe ser PNG, JPG, GIF o WebP.", ephemeral: true });
+        const prefix = { staff: "staff", moderacion: "mod", owner: "owner", reclaim: "reclaim", general: "emoji" }[categoria] || "emoji";
+        const name = (prefix + "_" + rawName).slice(0, 32);
+        try {
+          const created = await interaction.guild.emojis.create({ attachment: image.url, name, reason: "Creado por " + interaction.user.tag });
+          return interaction.reply("✨ Emoji creado: " + created.toString() + " **" + created.name + "**");
+        } catch (error) {
+          return interaction.reply({ content: "❌ No pude crear el emoji. Revisa el límite de emojis y los permisos del bot.", ephemeral: true });
+        }
+      }
+
+      if (sub === "borrar") {
+        const id = interaction.options.getString("id", true).trim();
+        const emoji = interaction.guild.emojis.cache.get(id);
+        if (!emoji) return interaction.reply({ content: "❌ No encontré ese emoji en este servidor.", ephemeral: true });
+        await emoji.delete("Eliminado por " + interaction.user.tag);
+        return interaction.reply("🗑️ Emoji eliminado correctamente.");
+      }
     }
 
     if (name === "post-staff") {
@@ -1984,9 +2116,28 @@ const server = http.createServer(async (req, res) => {
       return res.end(fs.readFileSync(file, "utf8"));
     }
 
+    if (requestPath === "/auth/password") {
+      if (req.method !== "POST") return sendJSON(res, 405, { error: "Método no permitido." });
+      let payload;
+      try { payload = JSON.parse(await readBody(req, 4096)); }
+      catch { return sendJSON(res, 400, { error: "Solicitud inválida." }); }
+
+      const supplied = String(payload.password || "");
+      const a = Buffer.from(supplied);
+      const b = Buffer.from(PANEL_PASSWORD);
+      const valid = a.length === b.length && crypto.timingSafeEqual(a, b);
+      if (!valid) return sendJSON(res, 401, { error: "Contraseña incorrecta." });
+
+      const gateId = crypto.randomUUID();
+      panelGates.set(gateId, { expiresAt: Date.now() + 15 * 60 * 1000 });
+      setPanelGateCookie(res, gateId);
+      return sendJSON(res, 200, { ok: true });
+    }
+
     if (requestPath === "/auth/discord") {
       const ip = req.socket.remoteAddress || "unknown";
       if (!rateLimit(ip, 20, 60_000)) return sendJSON(res, 429, { error: "Demasiadas solicitudes. Espera un momento." });
+      if (!panelGateUser(req)) return sendJSON(res, 403, { error: "Primero introduce la contraseña del panel." });
       if (!DISCORD_CLIENT_SECRET) return sendJSON(res, 503, { error: "OAuth de Discord no está configurado." });
 
       const redirect = encodeURIComponent(DISCORD_REDIRECT_URI);
@@ -2037,6 +2188,11 @@ const server = http.createServer(async (req, res) => {
 
       if (!allowed.length) return sendJSON(res, 403, { error: "No tienes permisos para administrar el servidor configurado." });
 
+      cleanupDashboardSessions();
+      if (sessions.size >= MAX_DASHBOARD_SESSIONS) {
+        return sendJSON(res, 429, { error: "El panel ya tiene 2 sesiones activas. Cierra una sesión antes de entrar." });
+      }
+
       const sessionId = crypto.randomUUID();
       sessions.set(sessionId, {
         user: me.body || {},
@@ -2045,6 +2201,9 @@ const server = http.createServer(async (req, res) => {
         expiresAt: Date.now() + SESSION_TTL_MS
       });
 
+      const gate = panelGateUser(req);
+      if (gate) panelGates.delete(parseCookies(req).panel_gate);
+      clearPanelGateCookie(res);
       setSessionCookie(res, sessionId);
       return redirect(res, "/");
     }
@@ -2062,7 +2221,10 @@ const server = http.createServer(async (req, res) => {
         authenticated: Boolean(session),
         user: session?.user || null,
         csrf: session?.csrf || null,
-        expiresAt: session?.expiresAt || 0
+        expiresAt: session?.expiresAt || 0,
+        maxSessions: MAX_DASHBOARD_SESSIONS,
+        activeSessions: sessions.size,
+        owners: DASHBOARD_OWNERS
       });
     }
 
