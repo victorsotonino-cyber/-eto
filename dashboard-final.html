@@ -16,21 +16,13 @@
 </head>
 <body>
 <div id="login" class="card login hidden">
-  <div class="eyebrow">🔐 NEXUS CONTROL CENTER</div>
+  <div class="eyebrow">NEXUS CONTROL CENTER</div>
   <h1>Panel privado</h1>
-  <p class="muted">Introduce la contraseña y el panel se abrirá directamente. Solo pueden existir <b>2 sesiones activas</b> al mismo tiempo.</p>
-  <label>🔑 Contraseña del panel</label>
-  <input id="panelPassword" class="input" type="password" autocomplete="current-password" placeholder="Introduce la contraseña">
-  <div class="row">
-    <button class="btn" id="unlockPanel">🔓 Entrar al panel</button>
-  </div>
-  <p id="loginStatus" class="muted" style="margin-top:12px"></p>
-  <div class="card" style="margin-top:16px;padding:13px;background:#0b0810">
-    <b>👑 Dueños</b>
-    <div style="margin-top:8px">👑 <b>Dueño</b> · Camtrax2024</div>
-    <div style="margin-top:5px">🛠️ <b>Dev</b> · srkid</div>
-  </div>
+  <p class="muted">Inicia sesión con Discord para acceder al panel. Solo los propietarios autorizados pueden entrar.</p>
+  <div class="row"><a class="btn" href="/auth/discord">Entrar con Discord</a></div>
+  <p id="loginStatus" class="muted" style="margin-top:12px">Acceso protegido mediante Discord.</p>
 </div>
+
 <div id="app" class="shell hidden">
   <aside class="side">
     <div class="brand">Nexus <b>AI</b><small>DISCORD CONTROL CENTER</small></div>
@@ -118,25 +110,8 @@ function render(p){
 }
 async function boot(){
  try{
-  const me=await api("/api/me");if(!me.authenticated){
-  $("#login").classList.remove("hidden");
-  const unlock=$("#unlockPanel"), pass=$("#panelPassword"), status=$("#loginStatus");
-  unlock.onclick=async()=>{
-    unlock.disabled=true;
-    status.textContent="Comprobando…";
-    try{
-      await api("/auth/password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:pass.value})});
-      status.textContent="✅ Contraseña correcta. Abriendo panel…";
-      toast("🔓 Acceso concedido");
-      setTimeout(()=>location.reload(),250);
-    }catch(e){
-      status.textContent="❌ "+e.message;
-      unlock.disabled=false;
-    }
-  };
-  pass.onkeydown=e=>{if(e.key==="Enter")unlock.click();};
-  return;
-}
+  const me=await api("/api/me");
+  if(!me.authenticated){ location.href="/auth/discord"; return; }
   state.csrf=me.csrf;$("#app").classList.remove("hidden");
   state.guilds=await api("/api/guilds");if(!state.guilds.length)throw Error("No tienes acceso al servidor configurado.");
   state.guild=state.guilds[0];$("#guild").innerHTML=state.guilds.map(g=>'<option value="'+esc(g.id)+'">'+esc(g.name)+'</option>').join("");
