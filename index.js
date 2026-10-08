@@ -2132,10 +2132,31 @@ const server = http.createServer(async (req, res) => {
       const valid = a.length === b.length && crypto.timingSafeEqual(a, b);
       if (!valid) return sendJSON(res, 401, { error: "Contraseña incorrecta." });
 
-      const gateId = crypto.randomUUID();
-      panelGates.set(gateId, { expiresAt: Date.now() + 15 * 60 * 1000 });
-      setPanelGateCookie(res, gateId);
-      return sendJSON(res, 200, { ok: true });
+      cleanupDashboardSessions();
+      if (sessions.size >= MAX_DASHBOARD_SESSIONS) {
+        return sendJSON(res, 429, { error: "El panel ya tiene 2 sesiones activas. Cierra una sesión antes de entrar." });
+      }
+
+      // La contraseña desbloquea y abre el panel directamente.
+      // Ya no obliga a pasar por OAuth de Discord después de introducirla.
+      const sessionId = crypto.randomUUID();
+      sessions.set(sessionId, {
+        user: {
+          id: "panel-owner",
+          username: "Panel Owner",
+          global_name: "Panel Owner"
+        },
+        guilds: [{
+          id: GUILD_ID,
+          name: client.guilds.cache.get(GUILD_ID)?.name || "Servidor configurado"
+        }],
+        csrf: crypto.randomUUID(),
+        expiresAt: Date.now() + SESSION_TTL_MS
+      });
+
+      clearPanelGateCookie(res);
+      setSessionCookie(res, sessionId);
+      return sendJSON(res, 200, { ok: true, authenticated: true });
     }
 
     if (requestPath === "/auth/discord") {
