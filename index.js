@@ -87,7 +87,22 @@ const EMOJI_IMPORT_PACK = [
   { name: "reclaim_ticket", category: "reclaim", url: "https://cdn3.emoji.gg/emojis/620845-claim-ticket.png" },
   { name: "sorteo_gift", category: "sorteos", url: "https://cdn3.emoji.gg/emojis/463819-giveaway.png" },
   { name: "sorteo_gift_alt", category: "sorteos", url: "https://cdn3.emoji.gg/emojis/434913-giveaway.png" },
-  { name: "owner_crown", category: "owner", url: "https://cdn3.emoji.gg/emojis/owner.png" }
+  { name: "owner_crown", category: "owner", url: "https://cdn3.emoji.gg/emojis/owner.png" },
+
+  { name: "cute_cat", category: "memes", url: "https://cdn3.emoji.gg/emojis/29219-cat.png" },
+  { name: "money_sign", category: "general", url: "https://cdn3.emoji.gg/emojis/454403-money.png" },
+  { name: "check_green", category: "general", url: "https://cdn3.emoji.gg/emojis/1779_check.png" },
+  { name: "star_gold", category: "general", url: "https://cdn3.emoji.gg/emojis/4677-star.png" },
+  { name: "verified_blue", category: "staff", url: "https://cdn3.emoji.gg/emojis/85294-verified.png" },
+  { name: "warning_yellow", category: "moderacion", url: "https://cdn3.emoji.gg/emojis/3440-warning.png" },
+  { name: "bell_notice", category: "general", url: "https://cdn3.emoji.gg/emojis/4231-bell.png" },
+  { name: "gift_red", category: "sorteos", url: "https://cdn3.emoji.gg/emojis/699456-gift.png" },
+  { name: "sad_meme", category: "memes", url: "https://cdn3.emoji.gg/emojis/9719-sad.png" },
+  { name: "cool_meme", category: "memes", url: "https://cdn3.emoji.gg/emojis/99998-cool.png" },
+  { name: "red_heart", category: "general", url: "https://cdn3.emoji.gg/emojis/875059-red-heart.png" },
+  { name: "yellow_heart", category: "general", url: "https://cdn3.emoji.gg/emojis/363660-yellow-heart.png" },
+  { name: "orange_heart", category: "general", url: "https://cdn3.emoji.gg/emojis/991338-orange-heart.png" },
+  { name: "green_heart", category: "general", url: "https://cdn3.emoji.gg/emojis/227886-green-heart.png" }
 ];
 
 const COLOR = {
