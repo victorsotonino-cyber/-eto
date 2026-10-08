@@ -11,12 +11,12 @@ const {
 } = require("discord.js");
 
 const TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID || "1557167878183067688";
+const CLIENT_ID = "1557167878183067688";
 const GUILD_ID = "1550131491080507473";
 const PORT = Number(process.env.PORT || 3000);
 const TICKET_IMAGE_URL = process.env.TICKET_IMAGE_URL || "";
 const BOT_BRAND = "Nexus";
-const DASHBOARD_URL = process.env.DASHBOARD_URL || "https://nexus-control-panel.onrender.com";
+const DASHBOARD_URL = "https://nexus-control-panel.onrender.com";
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
 const PANEL_SYNC_SECRET = process.env.PANEL_SYNC_SECRET || "";
 const DISCORD_REDIRECT_URI = DASHBOARD_URL + "/auth/discord/callback";
