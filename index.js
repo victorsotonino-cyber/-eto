@@ -635,6 +635,11 @@ function redirect(res, location, extraHeaders = {}) {
 }
 
 async function readBody(req, maxBytes = MAX_BODY_BYTES) {
+  const declaredLength = Number(req.headers["content-length"]);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new Error("Payload demasiado grande.");
+  }
+
   const chunks = [];
   let total = 0;
 
