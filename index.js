@@ -12,7 +12,7 @@ const {
 
 const TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN;
 const CLIENT_ID = "1557167878183067688";
-const GUILD_ID = "1550131491080507473";
+const GUILD_ID = "1554248808194642040";
 const PORT = Number(process.env.PORT || 3000);
 const TICKET_IMAGE_URL = process.env.TICKET_IMAGE_URL || "";
 const BOT_BRAND = "Nexus";
