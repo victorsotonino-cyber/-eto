@@ -361,7 +361,7 @@ const commands = [
 const DASHBOARD_COMMANDS = commands.map(c => ({name:c.name,description:c.description||"",options:(c.options||[]).map(o => ({name:o.name,description:o.description||"",type:o.type,options:(o.options||[]).map(s => ({name:s.name,description:s.description||""}))}))}));
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildModeration, GatewayIntentBits.GuildMessageReactions],
   partials: [Partials.Channel]
 });
 
@@ -877,7 +877,7 @@ async function save(p){state.config={...state.config,...p};await api('/api/confi
 const server = http.createServer(async (req,res) => {
  try {
   const requestPath=new URL(req.url,"http://localhost").pathname;
-  if(requestPath==="/"||requestPath==="/index.html"){res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store"});return res.end(fs.readFileSync(path.join(__dirname,"dashboard.html"),"utf8"))}
+  if(requestPath==="/"||requestPath==="/index.html"){res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store"});return res.end(fs.readFileSync(path.join(__dirname,"dashboard-v2.html"),"utf8"))}
   if(requestPath==="/auth/discord"){const redirect=encodeURIComponent(DISCORD_REDIRECT_URI);return res.writeHead(302,{Location:"https://discord.com/oauth2/authorize?client_id="+CLIENT_ID+"&response_type=code&redirect_uri="+redirect+"&scope=identify%20guilds"}).end()}
   if(requestPath.startsWith("/auth/discord/callback")){const code=new URL(req.url,"http://localhost").searchParams.get("code");if(!code||!DISCORD_CLIENT_SECRET)return res.end(JSON.stringify({error:"Falta configurar DISCORD_CLIENT_SECRET."}));const token=await discordRequest("https://discord.com/api/oauth2/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:CLIENT_ID,client_secret:DISCORD_CLIENT_SECRET,grant_type:"authorization_code",code,redirect_uri:DISCORD_REDIRECT_URI}).toString()});if(token.status!==200)return res.end(JSON.stringify({error:"OAuth2 rechazado por Discord.",status:token.status}));const me=await discordRequest("https://discord.com/api/users/@me",{headers:{Authorization:"Bearer "+token.body.access_token}});const gs=await discordRequest("https://discord.com/api/users/@me/guilds",{headers:{Authorization:"Bearer "+token.body.access_token}});const id=require("node:crypto").randomUUID();sessions.set(id,{user:me.body,guilds:gs.body.filter(g=>(Number(g.permissions)&0x20)===0x20||(Number(g.permissions)&0x8)===0x8)});res.writeHead(302,{"Set-Cookie":"dash_session="+id+"; HttpOnly; Path=/; SameSite=Lax","Location":"/"});return res.end()}
   if(requestPath==="/auth/logout"){res.writeHead(302,{"Set-Cookie":"dash_session=; Max-Age=0; Path=/","Location":"/"});return res.end()}
@@ -925,7 +925,7 @@ const server = http.createServer(async (req,res) => {
   res.writeHead(404,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"Ruta no encontrada"}));
  }catch(e){console.error("Dashboard error:",e);res.writeHead(500,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"Error interno del dashboard."}))}
 });
-server.listen(PORT,"0.0.0.0",()=>console.log("Health server en puerto "+PORT));
+setInterval(() => { try { saveDB(); } catch {} }, 5000);\nserver.listen(PORT,"0.0.0.0",()=>console.log("Health server en puerto "+PORT));
 const RUN_BOT = process.env.RUN_BOT === "true" || !process.env.RENDER_SERVICE_ID;
 if (RUN_BOT) {
   if (!TOKEN) {
