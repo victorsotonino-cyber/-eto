@@ -767,18 +767,33 @@ function panelEmbed(guild) {
 async function panelComponents(guild) {
   await fetchGuildEmojis(guild);
 
-  const support = findGuildEmoji(guild, ["TestSupporter", "staff_support", "support", "soporte"], EMOJIS.support);
-  const rewards = findGuildEmoji(guild, ["RedStar", "reclaim_rewards", "reclaim", "rewards"], EMOJIS.rewards);
-  const applications = findGuildEmoji(guild, ["postulaciones", "postulacion", "staff_application", "application", "apply", "staff"], null);
-  const ally = findGuildEmoji(guild, ["ally", "otros", "other", "owner_ally"], null);
+  const customPool = [...guild.emojis.cache.values()]
+    .filter(e => e && e.available !== false)
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
 
-  // Si no existe un nombre exacto para las dos categorías nuevas, usamos
-  // otro emoji personalizado YA existente en el servidor, nunca un emoji Unicode.
-  const customPool = [...guild.emojis.cache.values()].filter(e => e.available !== false);
-  const fallbackPool = customPool.filter(e => e.id !== support?.id && e.id !== rewards?.id);
+  const used = new Set();
 
-  const applicationEmoji = applications || emojiObject(fallbackPool[0]) || support;
-  const allyEmoji = ally || emojiObject(fallbackPool.find(e => e.id !== applicationEmoji?.id)) || rewards;
+  function take(names, preferred) {
+    const found = findGuildEmoji(guild, names, null);
+    if (found && guild.emojis.cache.has(found.id)) {
+      used.add(found.id);
+      return found;
+    }
+    if (preferred && guild.emojis.cache.has(preferred.id)) {
+      used.add(preferred.id);
+      return preferred;
+    }
+    const next = customPool.find(e => !used.has(e.id));
+    if (!next) return null;
+    used.add(next.id);
+    return emojiObject(next);
+  }
+
+  // Los 4 botones usan emojis personalizados que existen en este servidor.
+  const support = take(["TestSupporter", "staff_support", "support", "soporte"], EMOJIS.support);
+  const rewards = take(["RedStar", "reclaim_rewards", "reclaim", "rewards", "comprar", "compra"], EMOJIS.rewards);
+  const applications = take(["postulaciones", "postulacion", "staff_application", "application", "apply", "staff"]);
+  const ally = take(["ally", "otros", "other", "owner_ally", "reclamos", "reclamo"]);
 
   return [
     new ActionRowBuilder().addComponents(
@@ -788,8 +803,8 @@ async function panelComponents(guild) {
         .addOptions(
           { label: "Soporte", description: "Obtén ayuda del staff.", value: "support", emoji: support },
           { label: "Rewards", description: "Reclama tu recompensa.", value: "rewards", emoji: rewards },
-          { label: "Postulaciones", description: "Envía una postulación al equipo.", value: "applications", emoji: applicationEmoji },
-          { label: "Ally", description: "Cualquier otra consulta.", value: "ally", emoji: allyEmoji }
+          { label: "Postulaciones", description: "Envía una postulación al equipo.", value: "applications", emoji: applications },
+          { label: "Ally", description: "Cualquier otra consulta.", value: "ally", emoji: ally }
         )
     )
   ];
@@ -1344,6 +1359,7 @@ async function handleTicket(interaction) {
 
   if (sub === "panel") {
     if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Necesitas permisos de Staff.", ephemeral: true });
+    await fetchGuildEmojis(interaction.guild);
     const target = interaction.options.getChannel("canal") || channel;
     if (!target?.isTextBased()) return interaction.reply({ content: "❌ Ese canal no admite mensajes.", ephemeral: true });
     await target.send({ embeds: [panelEmbed(interaction.guild)], components: await panelComponents(interaction.guild) });
