@@ -73,15 +73,12 @@ function activityUser(user) {
   if (!user) return "Sistema";
   return user.tag || user.username || user.globalName || user.id || "Usuario";
 }
-function fetchPanelConfig() {
+function requestPanelJSON(pathname, headers={}) {
   return new Promise((resolve, reject) => {
-    const target = new URL(DASHBOARD_URL + "/api/sync/" + GUILD_ID + "?t=" + Date.now());
+    const target = new URL(DASHBOARD_URL + pathname + "?t=" + Date.now());
     const req = https.request(target, {
       method: "GET",
-      headers: {
-        "x-panel-sync-secret": PANEL_SYNC_SECRET,
-        "cache-control": "no-cache"
-      }
+      headers: { ...headers, "cache-control": "no-cache" }
     }, response => {
       let body = "";
       response.setEncoding("utf8");
@@ -97,8 +94,19 @@ function fetchPanelConfig() {
     req.end();
   });
 }
+async function fetchPanelConfig() {
+  const paths = [];
+  if (PANEL_SYNC_SECRET) paths.push({path:"/api/sync/" + GUILD_ID, headers:{"x-panel-sync-secret":PANEL_SYNC_SECRET}});
+  paths.push({path:"/api/panel-config/" + GUILD_ID, headers:{}});
+  let lastError = null;
+  for (const item of paths) {
+    try { return await requestPanelJSON(item.path, item.headers); }
+    catch (error) { lastError = error; }
+  }
+  throw lastError || new Error("No se pudo contactar con el panel");
+}
 async function syncPanelConfig() {
-  if (!PANEL_SYNC_SECRET || !DASHBOARD_URL) return false;
+  if (!DASHBOARD_URL) return false;
   try {
     const remote = await fetchPanelConfig();
     const g = getGuild(GUILD_ID);
@@ -895,6 +903,22 @@ const server = http.createServer(async (req,res) => {
       }catch{res.writeHead(400,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"Pregunta inválida"}));}
     }); return;
   }
+  if(requestPath.startsWith("/api/panel-config/")){
+    const guildId=requestPath.split("/").pop();
+    if(guildId!==GUILD_ID)return sendJSON(res,403,{error:"Servidor no permitido"});
+    const g=getGuild(guildId);
+    const payload={
+      categoryId:g.categoryId||null,
+      staffRoleId:g.staffRoleId||null,
+      logsChannelId:g.logsChannelId||null,
+      vouchChannelId:g.vouchChannelId||null,
+      staffQuestions:Array.isArray(g.staffQuestions)?g.staffQuestions.slice(0,20):[],
+      alterQuestions:Array.isArray(g.alterQuestions)?g.alterQuestions.slice(0,20):[],
+      configVersion:g.configVersion||0
+    };
+    res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store"});
+    return res.end(JSON.stringify(payload));
+  }
   if(requestPath.startsWith("/api/sync/")){
     const guildId=requestPath.split("/").pop();
     const secret=req.headers["x-panel-sync-secret"];
@@ -909,7 +933,7 @@ const server = http.createServer(async (req,res) => {
  }catch(e){console.error("Dashboard error:",e);res.writeHead(500,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"Error interno del dashboard."}))}
 });
 setInterval(() => { try { saveDB(); } catch {} }, 5000);
-setInterval(() => { syncPanelConfig().catch(() => {}); }, 5000);
+setInterval(() => { syncPanelConfig().catch(() => {}); }, 2500);
 server.listen(PORT,"0.0.0.0",()=>console.log("Health server en puerto "+PORT));
 const RUN_BOT = process.env.RUN_BOT === "true" || !process.env.RENDER_SERVICE_ID;
 if (RUN_BOT) {
