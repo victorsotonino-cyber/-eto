@@ -81,6 +81,15 @@ const EMOJIS = {
   rewards: { id: "1555058008642293821", name: "RedStar" }
 };
 
+const EMOJI_IMPORT_PACK = [
+  { name: "staff_hammer", category: "staff", url: "https://cdn3.emoji.gg/emojis/3121-staff.png" },
+  { name: "moderator_hammer", category: "moderacion", url: "https://cdn3.emoji.gg/emojis/187244-moderator.png" },
+  { name: "reclaim_ticket", category: "reclaim", url: "https://cdn3.emoji.gg/emojis/620845-claim-ticket.png" },
+  { name: "sorteo_gift", category: "sorteos", url: "https://cdn3.emoji.gg/emojis/463819-giveaway.png" },
+  { name: "sorteo_gift_alt", category: "sorteos", url: "https://cdn3.emoji.gg/emojis/434913-giveaway.png" },
+  { name: "owner_crown", category: "owner", url: "https://cdn3.emoji.gg/emojis/owner.png" }
+];
+
 const COLOR = {
   purple: 0x8b2cff,
   green: 0x57f287,
@@ -1299,6 +1308,19 @@ const commands = [
     .setDescription("Gestiona emojis personalizados del servidor.")
     .addSubcommand(s => s.setName("lista").setDescription("Muestra los emojis personalizados por categoría."))
     .addSubcommand(s => s
+      .setName("importar")
+      .setDescription("Importa un pack de emojis seleccionados.")
+      .addStringOption(o => o.setName("categoria").setDescription("Categoría a importar.")
+        .setRequired(true)
+        .addChoices(
+          { name: "Todos", value: "all" },
+          { name: "Staff", value: "staff" },
+          { name: "Moderación", value: "moderacion" },
+          { name: "Reclaim", value: "reclaim" },
+          { name: "Sorteos", value: "sorteos" },
+          { name: "Owner", value: "owner" }
+        )))
+    .addSubcommand(s => s
       .setName("crear")
       .setDescription("Crea un emoji personalizado desde una imagen.")
       .addStringOption(o => o.setName("nombre").setDescription("Nombre del emoji.").setRequired(true))
@@ -1870,6 +1892,43 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({
           embeds: [new EmbedBuilder().setColor(COLOR.purple).setTitle("✨ Emojis personalizados").setDescription(lines.join("\n\n")).setFooter({ text: BOT_BRAND + " • Emoji Manager" })]
         });
+      }
+
+      if (sub === "importar") {
+        const categoria = interaction.options.getString("categoria", true);
+        const selected = categoria === "all"
+          ? EMOJI_IMPORT_PACK
+          : EMOJI_IMPORT_PACK.filter(item => item.category === categoria);
+
+        if (!selected.length) {
+          return interaction.reply({ content: "No hay emojis preparados para esa categoría.", ephemeral: true });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+
+        const results = [];
+        for (const item of selected) {
+          if (interaction.guild.emojis.cache.some(e => e.name === item.name)) {
+            results.push(item.name + ": ya existe");
+            continue;
+          }
+
+          try {
+            const created = await interaction.guild.emojis.create({
+              attachment: item.url,
+              name: item.name,
+              reason: "Importación de pack de emojis"
+            });
+            results.push(created.toString() + " " + item.name);
+          } catch (error) {
+            results.push(item.name + ": no se pudo importar");
+          }
+        }
+
+        return interaction.editReply(
+          "Importación terminada.\n\n" +
+          results.join("\n")
+        );
       }
 
       if (sub === "crear") {
