@@ -2463,8 +2463,6 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (requestPath === "/auth/discord") {
-      const ip = req.socket.remoteAddress || "unknown";
-      if (!rateLimit(ip, 20, 60_000)) return sendJSON(res, 429, { error: "Demasiadas solicitudes. Espera un momento." });
       if (!DISCORD_CLIENT_SECRET) return sendJSON(res, 503, { error: "OAuth de Discord no está configurado." });
 
       const redirect = encodeURIComponent(DISCORD_REDIRECT_URI);
