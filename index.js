@@ -36,7 +36,7 @@ const DASHBOARD_FILE = path.join(DATA_DIR, "dashboard-data.json");
 const DB_VERSION = 4;
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 128 * 1024;
-const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "Dent2026";
+const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "";
 const MAX_DASHBOARD_SESSIONS = 2;
 const DASHBOARD_OWNERS = [
   { role: "Dueño", name: "Camtrax2024" },
@@ -1369,6 +1369,7 @@ const commands = [
         { name: "Sorteos", value: "sorteos" },
         { name: "Memes", value: "memes" },
         { name: "Owner", value: "owner" },
+        { name: "Animados", value: "animados" },
         { name: "General", value: "general" }
       )),
 
@@ -1594,10 +1595,10 @@ async function handleTicket(interaction) {
         content: "📄 Transcript de " + channel + " generado por " + interaction.user + ".",
         files: [file]
       });
-      return interaction.reply({ content: "📄 Transcript enviado a logs.", ephemeral: true });
+      return interaction.editReply({ content: "📄 Transcript enviado a logs." });
     }
 
-    return interaction.reply({ content: "📄 Transcript generado:", files: [file], ephemeral: true });
+    return interaction.editReply({ content: "📄 Transcript generado:", files: [file] });
   }
 
   if (sub === "delete") {
@@ -1749,7 +1750,7 @@ client.on("interactionCreate", async interaction => {
           });
           return interaction.reply({ content: "📄 Transcript enviado a logs.", ephemeral: true });
         }
-        return interaction.reply({ content: "📄 Transcript:", files: [file], ephemeral: true });
+        return interaction.editReply({ content: "📄 Transcript:", files: [file] });
       }
 
       if (interaction.customId === "ticket_delete") {
@@ -1776,6 +1777,7 @@ client.on("interactionCreate", async interaction => {
 
     if (name === "modlog") {
       if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Necesitas permisos de Staff.", ephemeral: true });
+      await interaction.deferReply({ ephemeral: true });
       const gd = getGuild(interaction.guild.id);
       if (interaction.options.getSubcommand() === "set") {
         gd.logsChannelId = sanitizeSnowflake(interaction.options.getChannel("canal", true).id);
@@ -1783,14 +1785,14 @@ client.on("interactionCreate", async interaction => {
         db.guilds[interaction.guild.id] = gd;
         saveDB("modlog set");
         await pushPanelState();
-        return interaction.reply({ content: "✅ Logs configurados.", ephemeral: true });
+        return interaction.editReply({ content: "✅ Logs configurados." });
       }
       gd.logsChannelId = null;
       touchConfig(gd);
       db.guilds[interaction.guild.id] = gd;
       saveDB("modlog off");
       await pushPanelState();
-      return interaction.reply({ content: "✅ Logs desactivados.", ephemeral: true });
+      return interaction.editReply({ content: "✅ Logs desactivados." });
     }
 
     if (name === "vouch") {
@@ -1853,7 +1855,7 @@ client.on("interactionCreate", async interaction => {
       await fetchGuildEmojis(interaction.guild);
 
       const selected = interaction.options.getString("categoria") || "all";
-      const groups = { staff: [], moderacion: [], reclaim: [], sorteos: [], memes: [], owner: [], general: [] };
+      const groups = { staff: [], moderacion: [], reclaim: [], sorteos: [], memes: [], owner: [], animados: [], general: [] };
 
       for (const emoji of interaction.guild.emojis.cache.values()) {
         if (!emoji || emoji.available === false) continue;
@@ -1867,6 +1869,7 @@ client.on("interactionCreate", async interaction => {
           : has("sorteo", "sorteos", "giveaway", "giveaways", "raffle", "drop", "premio") ? "sorteos"
           : has("meme", "memes", "lol", "funny", "xd") ? "memes"
           : has("owner", "owner_", "dueño", "dueno", "founder", "admin") ? "owner"
+          : has("animated", "animado", "animados", "gif", "dance", "blink", "jam", "party") ? "animados"
           : "general";
 
         groups[group].push(emoji);
@@ -1883,6 +1886,7 @@ client.on("interactionCreate", async interaction => {
         sorteos: "SORTEOS",
         memes: "MEMES",
         owner: "OWNER",
+        animados: "ANIMADOS",
         general: "GENERAL"
       };
 
@@ -1946,7 +1950,7 @@ client.on("interactionCreate", async interaction => {
       if (sub === "lista") {
         const emojis = [...interaction.guild.emojis.cache.values()];
         if (!emojis.length) return interaction.reply({ content: "📦 Este servidor no tiene emojis personalizados.", ephemeral: true });
-        const groups = { staff: [], moderacion: [], owner: [], reclaim: [], general: [] };
+        const groups = { staff: [], moderacion: [], owner: [], reclaim: [], sorteos: [], memes: [], animados: [], general: [] };
         for (const e of emojis) {
           const n = e.name || "sin_nombre";
           const key = n.toLowerCase();
@@ -1954,15 +1958,21 @@ client.on("interactionCreate", async interaction => {
             : key.startsWith("mod_") || key.startsWith("moderacion_") ? "moderacion"
             : key.startsWith("owner_") ? "owner"
             : key.startsWith("reclaim_") ? "reclaim"
+            : key.startsWith("sorteo_") || key.startsWith("giveaway_") || key.startsWith("gift_") ? "sorteos"
+            : key.startsWith("meme_") || key.includes("meme") ? "memes"
+            : key.startsWith("animated_") || key.startsWith("animado_") || key.includes("dance") || key.includes("blink") || key.includes("jam") || key.includes("party") ? "animados"
             : "general";
           groups[group].push(e);
         }
         const lines = [
-          "🛡️ **STAFF:** " + (groups.staff.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—"),
-          "🔨 **MODERACIÓN:** " + (groups.moderacion.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—"),
-          "👑 **OWNER:** " + (groups.owner.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—"),
-          "🎟️ **RECLAIM:** " + (groups.reclaim.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—"),
-          "✨ **GENERAL:** " + (groups.general.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—")
+          "**STAFF:** " + (groups.staff.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—"),
+          "**MODERACIÓN:** " + (groups.moderacion.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—"),
+          "**OWNER:** " + (groups.owner.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—"),
+          "**RECLAIM:** " + (groups.reclaim.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—"),
+          "**SORTEOS:** " + (groups.sorteos.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—"),
+          "**MEMES:** " + (groups.memes.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—"),
+          "**ANIMADOS:** " + (groups.animados.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—"),
+          "**GENERAL:** " + (groups.general.map(e => e.toString() + " `" + e.name + "`").join("  ") || "—")
         ];
         return interaction.reply({
           embeds: [new EmbedBuilder().setColor(COLOR.purple).setTitle("✨ Emojis personalizados").setDescription(lines.join("\n\n")).setFooter({ text: BOT_BRAND + " • Emoji Manager" })]
@@ -2031,6 +2041,7 @@ client.on("interactionCreate", async interaction => {
     }
 
     if (name === "post-staff") {
+      await interaction.deferReply();
       await syncPanelConfig();
       const questions = getGuild(interaction.guild.id).staffQuestions.length
         ? getGuild(interaction.guild.id).staffQuestions
@@ -2056,6 +2067,7 @@ client.on("interactionCreate", async interaction => {
     }
 
     if (name === "post-alter") {
+      await interaction.deferReply();
       await syncPanelConfig();
       const questions = getGuild(interaction.guild.id).alterQuestions.length
         ? getGuild(interaction.guild.id).alterQuestions
@@ -2443,6 +2455,7 @@ const server = http.createServer(async (req, res) => {
 
     if (requestPath === "/auth/password") {
       if (req.method !== "POST") return sendJSON(res, 405, { error: "Método no permitido." });
+      if (!PANEL_PASSWORD) return sendJSON(res, 503, { error: "PANEL_PASSWORD no está configurada." });
       const passwordIp = req.socket.remoteAddress || "password";
       if (!rateLimit("panel-password:" + passwordIp, 8, 5 * 60_000)) {
         return sendJSON(res, 429, { error: "Demasiados intentos. Espera unos minutos." });
@@ -2731,7 +2744,7 @@ if (dashboardLoaded.recovered) {
   try { saveDashboardDBNow("recuperación de backup"); } catch {}
 }
 
-setInterval(() => {
+let flushDBTimer = setInterval(() => {
   if (!dbDirty) return;
   try { saveDBNow("flush periódico"); }
   catch (error) { console.error("Nexus: flush periódico falló:", error); }
@@ -2763,6 +2776,8 @@ async function shutdown(signal) {
   if (dbSaveTimer) clearTimeout(dbSaveTimer);
   if (globalThis.__panelSyncTimer) clearInterval(globalThis.__panelSyncTimer);
   if (globalThis.__panelPushTimer) clearInterval(globalThis.__panelPushTimer);
+  if (flushDBTimer) clearInterval(flushDBTimer);
+  if (rateCleanupTimer) clearInterval(rateCleanupTimer);
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 5000).unref();
 }
