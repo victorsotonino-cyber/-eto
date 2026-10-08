@@ -2378,14 +2378,33 @@ client.on("guildUpdate", (oldGuild, newGuild) => recordActivity(newGuild.id, "Se
 client.on("error", error => console.error("Nexus: Discord client error:", error));
 
 const RATE = new Map();
+const MAX_RATE_BUCKETS = 5000;
+
+/**
+ * Expira buckets del rate limiter para evitar crecimiento indefinido de RAM.
+ */
+function cleanupRateBuckets(now = Date.now()) {
+  for (const [key, bucket] of RATE) {
+    if (!bucket || bucket.resetAt <= now) RATE.delete(key);
+  }
+  if (RATE.size <= MAX_RATE_BUCKETS) return;
+
+  const entries = [...RATE.entries()].sort((a, b) => a[1].resetAt - b[1].resetAt);
+  for (let i = 0; i < entries.length - MAX_RATE_BUCKETS; i++) {
+    RATE.delete(entries[i][0]);
+  }
+}
 
 function rateLimit(key, limit, windowMs) {
   const now = Date.now();
   const bucket = RATE.get(key);
+
   if (!bucket || bucket.resetAt <= now) {
+    if (RATE.size >= MAX_RATE_BUCKETS) cleanupRateBuckets(now);
     RATE.set(key, { count: 1, resetAt: now + windowMs });
     return true;
   }
+
   bucket.count++;
   return bucket.count <= limit;
 }
