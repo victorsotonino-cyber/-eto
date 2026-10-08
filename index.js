@@ -1336,7 +1336,7 @@ function renderQuestions(questions) {
   return items.join("");
 }
 
-async async function handleTicket(interaction) {
+async function handleTicket(interaction) {
   const sub = interaction.options.getSubcommand();
   const gd = getGuild(interaction.guild.id);
   const channel = interaction.channel;
