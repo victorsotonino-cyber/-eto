@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nexus Control AI</title>
+<style>
+:root{--bg:#07060a;--panel:#0d0b12;--panel2:#120d19;--line:#2b2035;--purple:#9b4dff;--purple2:#c78bff;--text:#f7f2ff;--muted:#9b90a8;--green:#57f287;--red:#ed4245;--yellow:#f5c451}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 65% -15%,#32104d 0,#100a16 35%,#07060a 72%);color:var(--text);font:14px Inter,system-ui,sans-serif}.shell{display:flex;min-height:100vh}.side{width:238px;border-right:1px solid var(--line);background:#08070beF;padding:20px 13px;position:sticky;top:0;height:100vh}.brand{font-size:24px;font-weight:900;padding:5px 12px 25px}.brand b{color:var(--purple2)}.brand small{display:block;color:#6e6279;font-size:9px;letter-spacing:.2em;margin-top:4px}.section{font-size:10px;color:#71617e;letter-spacing:.18em;padding:10px 11px}.nav button{width:100%;padding:11px 12px;margin:2px 0;background:transparent;border:1px solid transparent;border-radius:10px;color:#a99faf;text-align:left;cursor:pointer}.nav button:hover,.nav button.active{color:#fff;background:#1b1025;border-color:#45225d;box-shadow:0 0 20px #8d3cff18}.bottom{position:absolute;left:13px;right:13px;bottom:16px}.main{flex:1;min-width:0;padding:24px;max-width:1320px}.top{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:20px}.top h1{font-size:29px;margin:3px 0}.eyebrow{font-size:10px;color:#9b72b9;letter-spacing:.2em;text-transform:uppercase}.select,.input,.textarea{width:100%;background:#09070d;border:1px solid #382442;color:#fff;border-radius:9px;padding:11px;outline:none}.select{width:auto;min-width:220px}.select:focus,.input:focus,.textarea:focus{border-color:var(--purple)}.hero,.card{background:linear-gradient(145deg,#15101dF2,#0b0910F2);border:1px solid #2d1b3b;border-radius:15px}.hero{padding:24px;margin-bottom:15px}.card{padding:17px;margin-bottom:15px}.hero h2{margin:4px 0 8px;font-size:27px}.muted{color:var(--muted);line-height:1.55}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.stat{font-size:27px;font-weight:900;margin-top:6px}.purple{color:var(--purple2)}.green{color:var(--green)}.red{color:var(--red)}.yellow{color:var(--yellow)}.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 9px;border:1px solid #4a3158;background:#1a1022;border-radius:999px;font-size:12px}.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 9px #57f287}.btn{border:1px solid #7c35bd;background:linear-gradient(135deg,#9138ff,#6120a0);color:#fff;border-radius:9px;padding:10px 14px;cursor:pointer;font-weight:800}.btn.secondary{background:#1a1221;border-color:#45304f}.btn.danger{background:#4c1824;border-color:#7e2b3b}.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}.event{display:grid;grid-template-columns:120px 1fr auto;gap:12px;padding:11px 0;border-bottom:1px solid #211827}.event:last-child{border-bottom:0}.event-type{font-weight:800;color:#d5b7ec}.event-user{font-weight:700}.event-meta{color:var(--muted);font-size:12px}.logbox{max-height:590px;overflow:auto}.command{padding:9px 11px;border:1px solid #2a1a34;background:#0a080e;border-radius:8px;margin:7px 0;font-family:ui-monospace,monospace}.chat{min-height:240px;max-height:420px;overflow:auto;padding:6px}.msg{padding:10px 12px;margin:8px 0;border-radius:10px;background:#15101c;border:1px solid #2d1b3b}.msg.me{background:#21122f;border-color:#553078}.msg b{display:block;margin-bottom:4px}.empty{padding:35px;text-align:center;color:var(--muted)}.login{max-width:450px;margin:15vh auto;padding:30px}.hidden{display:none!important}.toast{position:fixed;right:18px;bottom:18px;background:#191020;border:1px solid #70429a;padding:12px 15px;border-radius:10px;display:none;z-index:10}
+@media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}.side{width:205px}.main{padding:17px}.event{grid-template-columns:95px 1fr}.event-meta{display:none}}
+@media(max-width:650px){.shell{display:block}.side{position:relative;width:100%;height:auto;border-right:0;border-bottom:1px solid var(--line)}.bottom{position:static;margin-top:12px}.nav{display:grid;grid-template-columns:1fr 1fr}.main{padding:13px}.grid,.grid2{grid-template-columns:1fr}.top{align-items:flex-start;flex-direction:column}.select{width:100%}}
+</style>
+</head>
+<body>
+<div id="login" class="card login hidden">
+  <div class="eyebrow">Nexus Control AI</div><h1>Panel de Nexus</h1>
+  <p class="muted">Control, actividad de Discord y asistente inteligente en un solo sitio.</p>
+  <a class="btn" href="/auth/discord">Entrar con Discord →</a>
+</div>
+<div id="app" class="shell hidden">
+<aside class="side">
+  <div class="brand">Nexus <b>AI</b><small>DISCORD CONTROL CENTER</small></div>
+  <div class="section">CONTROL</div>
+  <div class="nav">
+    <button data-page="home" class="active">⌂ &nbsp; Resumen</button>
+    <button data-page="activity">◉ &nbsp; Actividad en vivo</button>
+    <button data-page="tickets">◈ &nbsp; Tickets</button>
+    <button data-page="moderation">◆ &nbsp; Moderación</button>
+    <button data-page="applications">✦ &nbsp; Postulaciones</button>
+    <button data-page="ai">✧ &nbsp; Nexus AI</button>
+  </div>
+  <div class="section">SISTEMA</div>
+  <div class="nav">
+    <button data-page="logs">▤ &nbsp; Logs</button>
+    <button data-page="commands">⌘ &nbsp; Comandos</button>
+  </div>
+  <div class="bottom"><button class="btn secondary" id="logout" style="width:100%">Cerrar sesión</button></div>
+</aside>
+<main class="main">
+  <div class="top"><div><div class="eyebrow">Nexus Control Center</div><h1 id="title">Resumen</h1></div><select id="guild" class="select"></select></div>
+  <section id="page"></section>
+</main>
+</div>
+<div id="toast" class="toast"></div>
+<script>
+const $=s=>document.querySelector(s), state={guild:null,guilds:[],config:{},activity:[]};
+let current="home", timer=null;
+const titles={home:"Resumen",activity:"Actividad en vivo",tickets:"Tickets",moderation:"Moderación",applications:"Postulaciones",ai:"Nexus AI",logs:"Logs",commands:"Comandos"};
+async function api(url,opt){const r=await fetch(url,opt);if(r.status===401)throw Error("auth");const j=await r.json();if(!r.ok)throw Error(j.error||"Error");return j}
+function esc(v){return String(v??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]))}
+function toast(t){const x=$("#toast");x.textContent=t;x.style.display="block";clearTimeout(window.__toast);window.__toast=setTimeout(()=>x.style.display="none",2200)}
+function nav(p){current=p;document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.page===p));$("#title").textContent=titles[p];render()}
+async function load(){state.config=await api("/api/config/"+state.guild.id);state.activity=await api("/api/activity/"+state.guild.id+"?limit=200");render()}
+function eventRows(){if(!state.activity.length)return '<div class="empty">Todavía no hay actividad registrada. El bot empezará a detectarla al recibir eventos de Discord.</div>';return '<div class="logbox">'+state.activity.map(e=>'<div class="event"><div class="event-type">'+esc(e.type)+'</div><div><div class="event-user">'+esc(e.user||"Sistema")+'</div><div class="event-meta">'+esc(e.details||"Sin detalles")+'</div></div><div class="event-meta">'+new Date(e.at).toLocaleString("es-ES")+'</div></div>').join("")+"</div>"}
+function commands(){return ["ticket","modlog","ban","unban","kick","timeout","untimeout","warn","warnings","clearwarns","clear","lock","unlock","slowmode","nick","userinfo","serverinfo","post-staff","post-alter","vouch"].map(x=>'<div class="command">/'+x+'</div>').join("")}
+function render(){
+ const c=state.config,a=state.activity;
+ if(current==="home"){
+  const types=a.reduce((m,e)=>(m[e.type]=(m[e.type]||0)+1,m),{});
+  $("#page").innerHTML='<div class="hero"><div class="eyebrow">SERVIDOR CONECTADO</div><h2>'+esc(state.guild.name)+'</h2><p class="muted">Nexus detecta cambios, mensajes, moderación, miembros, canales, roles, voz, comandos y tickets de Discord y los concentra aquí.</p><span class="pill"><span class="dot"></span> Monitor activo</span></div><div class="grid"><div class="card"><div class="muted">Eventos detectados</div><div class="stat">'+a.length+'</div></div><div class="card"><div class="muted">Tickets abiertos</div><div class="stat">'+(c.openTickets||0)+'</div></div><div class="card"><div class="muted">Vouches</div><div class="stat">'+Object.values(c.vouches||{}).reduce((n,v)=>n+Number(v||0),0)+'</div></div><div class="card"><div class="muted">Estado</div><div class="stat green">ONLINE</div></div></div><div class="grid2"><div class="card"><h2>Actividad reciente</h2>'+eventRows()+'</div><div class="card"><h2>Qué está detectando</h2><p class="muted">Mensajes · ediciones · borrados · entradas/salidas · bans · canales · roles · cambios del servidor · voz · comandos · tickets · moderación.</p><button class="btn" data-go="activity">Abrir monitor →</button></div></div>';
+ }else if(current==="activity"){
+  $("#page").innerHTML='<div class="hero"><div class="eyebrow">LIVE MONITOR</div><h2>Todo lo que hace el servidor</h2><p class="muted">Actualización automática cada 3 segundos. Se muestran los últimos 200 eventos guardados.</p><div class="row"><button class="btn" id="refresh">Actualizar ahora</button><span class="pill"><span class="dot"></span> Escuchando Discord</span></div></div><div class="card">'+eventRows()+"</div>";
+  $("#refresh").onclick=load;
+ }else if(current==="tickets"){
+  $("#page").innerHTML='<div class="hero"><div class="eyebrow">TICKETS</div><h2>Centro de tickets</h2><p class="muted">La configuración se guarda para el mismo sistema que usa el bot.</p></div><div class="card"><div class="grid2"><div><label>ID categoría</label><input class="input" id="cat" value="'+esc(c.categoryId||"")+'"></div><div><label>ID rol Staff</label><input class="input" id="staff" value="'+esc(c.staffRoleId||"")+'"></div></div><label>ID canal de logs</label><input class="input" id="log" value="'+esc(c.logsChannelId||"")+'"><button class="btn" id="save">Guardar</button></div><div class="card"><h2>Actividad de tickets</h2>'+eventRows()+"</div>";
+  $("#save").onclick=async()=>{await api("/api/config/"+state.guild.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({categoryId:$("#cat").value.trim()||null,staffRoleId:$("#staff").value.trim()||null,logsChannelId:$("#log").value.trim()||null})});toast("Guardado");await load()}
+ }else if(current==="moderation"){
+  $("#page").innerHTML='<div class="hero"><div class="eyebrow">MODERATION</div><h2>Seguridad y control</h2><p class="muted">Los eventos de moderación aparecen automáticamente en el monitor.</p></div><div class="card"><h2>Comandos</h2>'+commands()+"</div><div class="card"><h2>Últimas acciones</h2>"+eventRows()+"</div>";
+ }else if(current==="applications"){
+  const box=(key,title,arr)=>'<div class="card"><div class="row" style="justify-content:space-between"><h2>'+title+'</h2><button class="btn secondary" data-add="'+key+'">+ Añadir</button></div>'+arr.map((q,i)=>'<div style="margin:10px 0"><textarea class="textarea" data-q="'+key+'">'+esc(q)+'</textarea><button class="btn danger" data-del="'+key+'" data-i="'+i+'">Eliminar</button></div>').join("")+'<button class="btn" data-save="'+key+'">Guardar preguntas</button></div>';
+  $("#page").innerHTML='<div class="hero"><div class="eyebrow">APPLICATIONS</div><h2>Postulaciones</h2><p class="muted">Edita las preguntas de /post-staff y /post-alter.</p></div>'+box("staffQuestions","Post-Staff",c.staffQuestions||[])+box("alterQuestions","Post-Alter",c.alterQuestions||[]);
+  document.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{state.config[b.dataset.add]=[...(state.config[b.dataset.add]||[]),"Nueva pregunta"];render()});
+  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{state.config[b.dataset.del].splice(+b.dataset.i,1);render()});
+  document.querySelectorAll("[data-save]").forEach(b=>b.onclick=async()=>{const k=b.dataset.save;const vals=[...document.querySelectorAll("[data-q='"+k+"']")].map(x=>x.value.trim()).filter(Boolean);await api("/api/config/"+state.guild.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({[k]:vals})});toast("Preguntas guardadas");await load()});
+ }else if(current==="ai"){
+  $("#page").innerHTML='<div class="hero"><div class="eyebrow">NEXUS AI</div><h2>Asistente de ayuda</h2><p class="muted">Pregunta por el estado del servidor, eventos recientes, tickets, moderación o cómo configurar Nexus. La respuesta usa los datos reales del panel.</p></div><div class="card"><div id="chat" class="chat"><div class="msg"><b>Nexus AI</b>Hola. Puedo analizar la actividad detectada y explicarte qué está pasando en tu servidor.</div></div><div class="row"><input class="input" id="ask" placeholder="Ej.: ¿Qué ha pasado últimamente?"><button class="btn" id="send">Preguntar</button></div></div>';
+  const send=async()=>{const q=$("#ask").value.trim();if(!q)return;$("#chat").innerHTML+='<div class="msg me"><b>Tú</b>'+esc(q)+'</div>';$("#ask").value="";const r=await api("/api/ai/"+state.guild.id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question:q})});$("#chat").innerHTML+='<div class="msg"><b>Nexus AI</b>'+esc(r.answer).replace(/\n/g,"<br>")+"</div>";$("#chat").scrollTop=99999};$("#send").onclick=send;$("#ask").addEventListener("keydown",e=>{if(e.key==="Enter")send()});
+ }else if(current==="logs"){
+  $("#page").innerHTML='<div class="hero"><div class="eyebrow">LOGS</div><h2>Registro central</h2><p class="muted">El monitor guarda los últimos eventos para que puedas revisar qué ocurrió.</p></div><div class="card">'+eventRows()+"</div>";
+ }else if(current==="commands"){
+  $("#page").innerHTML='<div class="hero"><div class="eyebrow">COMMAND CENTER</div><h2>Comandos de Nexus</h2><p class="muted">Lista rápida de las funciones disponibles en el bot.</p></div><div class="card">'+commands()+"</div>";
+ }
+ document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>nav(b.dataset.go));
+}
+async function boot(){try{const me=await api("/api/me");if(!me.authenticated){$("#login").classList.remove("hidden");return}$("#app").classList.remove("hidden");state.guilds=await api("/api/guilds");if(!state.guilds.length)throw Error("No tienes un servidor administrable.");state.guild=state.guilds[0];$("#guild").innerHTML=state.guilds.map(g=>'<option value="'+esc(g.id)+'">'+esc(g.name)+'</option>').join("");$("#guild").onchange=async()=>{state.guild=state.guilds.find(g=>g.id===$("#guild").value)||state.guilds[0];await load()};await load();if(timer)clearInterval(timer);timer=setInterval(()=>{if(current==="activity"||current==="home")load().catch(()=>{})},3000)}catch(e){if(e.message==="auth")location.reload();else document.body.innerHTML='<div class="card login"><h1>Nexus Control</h1><p>'+esc(e.message)+'</p><a class="btn" href="/auth/discord">Volver</a></div>'}}
+document.querySelectorAll(".nav button").forEach(b=>b.onclick=()=>nav(b.dataset.page));$("#logout").onclick=()=>location.href="/auth/logout";boot();
+</script>
+</body>
+</html>
