@@ -2060,7 +2060,7 @@ client.on("interactionCreate", async interaction => {
         "📌 **Buscamos personas activas, responsables, respetuosas y comprometidas con la comunidad.**\n\n" +
         POST_STAFF_NOTIFY_ROLE_IDS.map(id => "<@&" + id + ">").join(" ");
 
-      return interaction.reply({
+      return interaction.editReply({
         embeds: [
           new EmbedBuilder()
             .setColor(COLOR.purple)
@@ -2084,7 +2084,7 @@ client.on("interactionCreate", async interaction => {
         "Copia el número de cada pregunta y escribe tu respuesta debajo.\n\n" +
         renderQuestions(questions);
 
-      return interaction.reply({
+      return interaction.editReply({
         embeds: [
           new EmbedBuilder()
             .setColor(COLOR.purple)
