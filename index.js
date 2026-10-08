@@ -12,7 +12,7 @@ const {
 
 const TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID || "1557167878183067688";
-const GUILD_ID = process.env.GUILD_ID || "1550131491080507473";
+const GUILD_ID = "1550131491080507473";
 const PORT = Number(process.env.PORT || 3000);
 const TICKET_IMAGE_URL = process.env.TICKET_IMAGE_URL || "";
 const BOT_BRAND = "Nexus";
@@ -73,25 +73,50 @@ function activityUser(user) {
   if (!user) return "Sistema";
   return user.tag || user.username || user.globalName || user.id || "Usuario";
 }
-async function syncPanelConfig() {
-  if (!PANEL_SYNC_SECRET || !DASHBOARD_URL || !client.isReady()) return;
-  try {
-    const response = await fetch(DASHBOARD_URL + "/api/sync/" + GUILD_ID, {
-      headers: { "x-panel-sync-secret": PANEL_SYNC_SECRET },
-      signal: AbortSignal.timeout(5000)
+function fetchPanelConfig() {
+  return new Promise((resolve, reject) => {
+    const target = new URL(DASHBOARD_URL + "/api/sync/" + GUILD_ID + "?t=" + Date.now());
+    const req = https.request(target, {
+      method: "GET",
+      headers: {
+        "x-panel-sync-secret": PANEL_SYNC_SECRET,
+        "cache-control": "no-cache"
+      }
+    }, response => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", chunk => body += chunk);
+      response.on("end", () => {
+        if (response.statusCode !== 200) return reject(new Error("Panel HTTP " + response.statusCode));
+        try { resolve(JSON.parse(body)); }
+        catch { reject(new Error("El panel devolvió JSON inválido")); }
+      });
     });
-    if (!response.ok) return;
-    const remote = await response.json();
+    req.setTimeout(8000, () => req.destroy(new Error("Timeout del panel")));
+    req.on("error", reject);
+    req.end();
+  });
+}
+async function syncPanelConfig() {
+  if (!PANEL_SYNC_SECRET || !DASHBOARD_URL) return false;
+  try {
+    const remote = await fetchPanelConfig();
     const g = getGuild(GUILD_ID);
     for (const k of ["categoryId","staffRoleId","logsChannelId","vouchChannelId"]) {
       if (Object.prototype.hasOwnProperty.call(remote,k)) g[k] = remote[k] || null;
     }
     for (const k of ["staffQuestions","alterQuestions"]) {
-      if (Array.isArray(remote[k]) && remote[k].length) g[k] = remote[k].filter(x => typeof x === "string" && x.trim()).slice(0,20);
+      if (Array.isArray(remote[k])) {
+        g[k] = remote[k].filter(x => typeof x === "string" && x.trim()).slice(0,20);
+      }
     }
+    if (remote.configVersion) g.configVersion = remote.configVersion;
     saveDB();
+    console.log("Nexus: configuración del panel sincronizada (" + (g.configVersion || "sin versión") + ").");
+    return true;
   } catch (error) {
-    console.log("Sincronización del panel pendiente:", error?.message || error);
+    console.log("Nexus: sincronización del panel pendiente:", error?.message || error);
+    return false;
   }
 }
 
@@ -878,7 +903,7 @@ const server = http.createServer(async (req,res) => {
     res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store"});
     return res.end(JSON.stringify(guildConfig(guildId)));
   }
-  if(requestPath.startsWith("/api/config/")){const u=dashboardUser(req);if(!u)return sendJSON(res,401,{error:"No autenticado"});const guildId=req.url.split("/").pop();if(guildId!==GUILD_ID || !u.guilds.some(g=>g.id===guildId))return sendJSON(res,403,{error:"Servidor no permitido"});if(req.method==="GET"){res.writeHead(200,{"Content-Type":"application/json"});return res.end(JSON.stringify(guildConfig(guildId)))}let body="";req.on("data",x=>body+=x);req.on("end",()=>{try{const p=JSON.parse(body||"{}"),g=getGuild(guildId);for(const k of ["categoryId","staffRoleId","logsChannelId","vouchChannelId"])if(Object.prototype.hasOwnProperty.call(p,k))g[k]=p[k]||null;for(const k of ["staffQuestions","alterQuestions"])if(Array.isArray(p[k]))g[k]=p[k].filter(x=>typeof x==="string"&&x.trim()).slice(0,20);saveDB();res.writeHead(200,{"Content-Type":"application/json"});res.end(JSON.stringify(guildConfig(guildId)))}catch{res.writeHead(400,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"JSON inválido"}))}});return}
+  if(requestPath.startsWith("/api/config/")){const u=dashboardUser(req);if(!u)return sendJSON(res,401,{error:"No autenticado"});const guildId=req.url.split("/").pop();if(guildId!==GUILD_ID || !u.guilds.some(g=>g.id===guildId))return sendJSON(res,403,{error:"Servidor no permitido"});if(req.method==="GET"){res.writeHead(200,{"Content-Type":"application/json"});return res.end(JSON.stringify(guildConfig(guildId)))}let body="";req.on("data",x=>body+=x);req.on("end",()=>{try{const p=JSON.parse(body||"{}"),g=getGuild(guildId);for(const k of ["categoryId","staffRoleId","logsChannelId","vouchChannelId"])if(Object.prototype.hasOwnProperty.call(p,k))g[k]=p[k]||null;for(const k of ["staffQuestions","alterQuestions"])if(Array.isArray(p[k]))g[k]=p[k].filter(x=>typeof x==="string"&&x.trim()).slice(0,20);g.configVersion=Date.now();saveDB();res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store"});res.end(JSON.stringify(guildConfig(guildId)))}catch{res.writeHead(400,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"JSON inválido"}))}});return}
   if(req.method==="GET"){res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store"});return res.end(dashboardHTML)}
   res.writeHead(404,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"Ruta no encontrada"}));
  }catch(e){console.error("Dashboard error:",e);res.writeHead(500,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"Error interno del dashboard."}))}
