@@ -362,9 +362,13 @@ function saveDashboardDBNow(reason) {
   if (reason) console.log("Nexus: dashboard guardado (" + reason + ").");
 }
 
+/**
+ * Returns normalized guild state without re-normalizing large collections.
+ * The previous implementation traversed tickets/warnings/vouches on every
+ * message/event, creating unnecessary O(n) hot-path work.
+ */
 function getGuild(guildId, store = db) {
   if (!store.guilds[guildId]) store.guilds[guildId] = defaultGuild();
-  store.guilds[guildId] = normalizeGuild(store.guilds[guildId]);
   return store.guilds[guildId];
 }
 
