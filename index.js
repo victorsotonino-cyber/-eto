@@ -18,6 +18,7 @@ const TICKET_IMAGE_URL = process.env.TICKET_IMAGE_URL || "";
 const BOT_BRAND = "Nexus";
 const DASHBOARD_URL = process.env.DASHBOARD_URL || "https://nexus-control-panel.onrender.com";
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
+const PANEL_SYNC_SECRET = process.env.PANEL_SYNC_SECRET || "";
 const DISCORD_REDIRECT_URI = DASHBOARD_URL + "/auth/discord/callback";
 const sessions = new Map();
 let dashboardFile;
@@ -72,6 +73,28 @@ function activityUser(user) {
   if (!user) return "Sistema";
   return user.tag || user.username || user.globalName || user.id || "Usuario";
 }
+async function syncPanelConfig() {
+  if (!PANEL_SYNC_SECRET || !DASHBOARD_URL || !client.isReady()) return;
+  try {
+    const response = await fetch(DASHBOARD_URL + "/api/sync/" + GUILD_ID, {
+      headers: { "x-panel-sync-secret": PANEL_SYNC_SECRET },
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!response.ok) return;
+    const remote = await response.json();
+    const g = getGuild(GUILD_ID);
+    for (const k of ["categoryId","staffRoleId","logsChannelId","vouchChannelId"]) {
+      if (Object.prototype.hasOwnProperty.call(remote,k)) g[k] = remote[k] || null;
+    }
+    for (const k of ["staffQuestions","alterQuestions"]) {
+      if (Array.isArray(remote[k]) && remote[k].length) g[k] = remote[k].filter(x => typeof x === "string" && x.trim()).slice(0,20);
+    }
+    saveDB();
+  } catch (error) {
+    console.log("Sincronización del panel pendiente:", error?.message || error);
+  }
+}
+
 function getGuild(guildId) {
   if (!db.guilds[guildId]) {
     db.guilds[guildId] = {
@@ -478,7 +501,10 @@ async function handleTicket(interaction) {
   }
 }
 
-client.once("ready", async () => {
+client.once("ready", async () => {  console.log("Nexus conectado. Sincronización Panel ↔ Fadehost activa.");
+  await syncPanelConfig();
+  setInterval(syncPanelConfig, 5000);
+
   console.log(BOT_BRAND + " conectado como " + client.user.tag);
   client.user.setActivity("🎫 Nexus • /ticket panel", { type: 0 });
   try { await registerCommands(); } catch (e) { console.error("Error registrando comandos:", e); }
@@ -842,12 +868,19 @@ const server = http.createServer(async (req,res) => {
       }catch{res.writeHead(400,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"Pregunta inválida"}));}
     }); return;
   }
+  if(requestPath.startsWith("/api/sync/")){
+    const guildId=requestPath.split("/").pop();
+    const secret=req.headers["x-panel-sync-secret"];
+    if(!PANEL_SYNC_SECRET || secret!==PANEL_SYNC_SECRET) return sendJSON(res,401,{error:"No autorizado"});
+    if(guildId!==GUILD_ID) return sendJSON(res,403,{error:"Servidor no permitido"});
+    res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store"});
+    return res.end(JSON.stringify(guildConfig(guildId)));
+  }
   if(requestPath.startsWith("/api/config/")){const u=dashboardUser(req);if(!u)return sendJSON(res,401,{error:"No autenticado"});const guildId=req.url.split("/").pop();if(!u.guilds.some(g=>g.id===guildId))return sendJSON(res,403,{error:"Sin acceso"});if(req.method==="GET"){res.writeHead(200,{"Content-Type":"application/json"});return res.end(JSON.stringify(guildConfig(guildId)))}let body="";req.on("data",x=>body+=x);req.on("end",()=>{try{const p=JSON.parse(body||"{}"),g=getGuild(guildId);for(const k of ["categoryId","staffRoleId","logsChannelId","vouchChannelId"])if(Object.prototype.hasOwnProperty.call(p,k))g[k]=p[k]||null;for(const k of ["staffQuestions","alterQuestions"])if(Array.isArray(p[k]))g[k]=p[k].filter(x=>typeof x==="string"&&x.trim()).slice(0,20);saveDB();res.writeHead(200,{"Content-Type":"application/json"});res.end(JSON.stringify(guildConfig(guildId)))}catch{res.writeHead(400,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"JSON inválido"}))}});return}
   if(req.method==="GET"){res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store"});return res.end(dashboardHTML)}
   res.writeHead(404,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"Ruta no encontrada"}));
  }catch(e){console.error("Dashboard error:",e);res.writeHead(500,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"Error interno del dashboard."}))}
 });
-setInterval(() => { try { saveDB(); } catch {} }, 5000 );
 setInterval(() => { try { saveDB(); } catch {} }, 5000);
 server.listen(PORT,"0.0.0.0",()=>console.log("Health server en puerto "+PORT));
 const RUN_BOT = process.env.RUN_BOT === "true" || !process.env.RENDER_SERVICE_ID;
