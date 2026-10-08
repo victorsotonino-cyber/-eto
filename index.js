@@ -717,6 +717,31 @@ async function fetchGuildEmojis(guild) {
   }
 }
 
+async function importEmojiPackOnReady() {
+  const guild = client.guilds.cache.get(GUILD_ID);
+  if (!guild) return;
+
+  await guild.emojis.fetch().catch(() => {});
+  if (!guild.members.me?.permissions?.has(PermissionFlagsBits.ManageEmojisAndStickers)) {
+    console.log("Nexus: sin permiso para importar emojis automáticamente.");
+    return;
+  }
+
+  for (const item of EMOJI_IMPORT_PACK) {
+    if (guild.emojis.cache.some(e => e.name === item.name)) continue;
+    try {
+      await guild.emojis.create({
+        attachment: item.url,
+        name: item.name,
+        reason: "Pack inicial de emojis"
+      });
+      console.log("Nexus: emoji importado: " + item.name);
+    } catch (error) {
+      console.log("Nexus: no pude importar " + item.name + ": " + error.message);
+    }
+  }
+}
+
 function emojiObject(emoji) {
   if (!emoji) return null;
   return { id: emoji.id, name: emoji.name, animated: Boolean(emoji.animated) };
@@ -1567,6 +1592,12 @@ client.once("ready", async () => {
 
   try { await registerCommands(); }
   catch (error) { console.error("Nexus: error registrando comandos:", error); }
+
+  try {
+    await importEmojiPackOnReady();
+  } catch (error) {
+    console.error("Nexus: error importando el pack de emojis:", error.message);
+  }
 
   await syncPanelConfig();
   await pushPanelState();
