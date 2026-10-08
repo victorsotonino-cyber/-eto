@@ -2465,7 +2465,6 @@ const server = http.createServer(async (req, res) => {
     if (requestPath === "/auth/discord") {
       const ip = req.socket.remoteAddress || "unknown";
       if (!rateLimit(ip, 20, 60_000)) return sendJSON(res, 429, { error: "Demasiadas solicitudes. Espera un momento." });
-      if (!panelGateUser(req)) return sendJSON(res, 403, { error: "Primero introduce la contraseña del panel." });
       if (!DISCORD_CLIENT_SECRET) return sendJSON(res, 503, { error: "OAuth de Discord no está configurado." });
 
       const redirect = encodeURIComponent(DISCORD_REDIRECT_URI);
@@ -2516,10 +2515,6 @@ const server = http.createServer(async (req, res) => {
 
       if (!allowed.length) return sendJSON(res, 403, { error: "No tienes permisos para administrar el servidor configurado." });
 
-      cleanupDashboardSessions();
-      if (sessions.size >= MAX_DASHBOARD_SESSIONS) {
-        return sendJSON(res, 429, { error: "El panel alcanzó el máximo de sesiones activas. Inténtalo más tarde." });
-      }
 
       const sessionId = crypto.randomUUID();
       sessions.set(sessionId, {
@@ -2529,9 +2524,6 @@ const server = http.createServer(async (req, res) => {
         expiresAt: Date.now() + SESSION_TTL_MS
       });
 
-      const gate = panelGateUser(req);
-      if (gate) panelGates.delete(parseCookies(req).panel_gate);
-      clearPanelGateCookie(res);
       setSessionCookie(res, sessionId);
       return redirect(res, "/");
     }
@@ -2550,7 +2542,6 @@ const server = http.createServer(async (req, res) => {
         user: session?.user || null,
         csrf: session?.csrf || null,
         expiresAt: session?.expiresAt || 0,
-        maxSessions: MAX_DASHBOARD_SESSIONS,
         activeSessions: sessions.size,
         owners: DASHBOARD_OWNERS
       });
