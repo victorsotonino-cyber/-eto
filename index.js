@@ -2118,6 +2118,10 @@ const server = http.createServer(async (req, res) => {
 
     if (requestPath === "/auth/password") {
       if (req.method !== "POST") return sendJSON(res, 405, { error: "Método no permitido." });
+      const passwordIp = req.socket.remoteAddress || "password";
+      if (!rateLimit("panel-password:" + passwordIp, 8, 5 * 60_000)) {
+        return sendJSON(res, 429, { error: "Demasiados intentos. Espera unos minutos." });
+      }
       let payload;
       try { payload = JSON.parse(await readBody(req, 4096)); }
       catch { return sendJSON(res, 400, { error: "Solicitud inválida." }); }
