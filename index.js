@@ -2603,7 +2603,11 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, session.guilds.filter(g => g.id === GUILD_ID));
     }
 
-    if (requestPath === "/api/commands") return sendJSON(res, 200, DASHBOARD_COMMANDS);
+    if (requestPath === "/api/commands") {
+      const session = dashboardUser(req);
+      if (!session) return sendJSON(res, 401, { error: "No autenticado" });
+      return sendJSON(res, 200, DASHBOARD_COMMANDS);
+    }
 
     if (requestPath.startsWith("/api/activity/")) {
       const session = requireSession(req, res);
