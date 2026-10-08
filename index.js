@@ -2773,6 +2773,9 @@ process.on("uncaughtException", error => {
   try { if (dbDirty) saveDBNow("uncaughtException"); } catch {}
 });
 
+const rateCleanupTimer = setInterval(() => cleanupRateBuckets(), 60_000);
+rateCleanupTimer.unref?.();
+
 const RUN_BOT = process.env.RUN_BOT !== "false";
 if (RUN_BOT) startBot();
 else console.log("Nexus: modo Dashboard activo (RUN_BOT=false).");
