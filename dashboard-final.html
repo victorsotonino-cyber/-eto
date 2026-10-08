@@ -136,7 +136,7 @@ async function boot(){
  }catch(e){if(e.message==="auth"){location.reload();return}document.body.innerHTML='<div class="card login"><h1>Nexus Control</h1><p class="muted">'+esc(e.message)+'</p><a class="btn" href="/auth/discord">Volver a iniciar sesión</a></div>'}
 }
 document.querySelectorAll(".nav button").forEach(b=>b.onclick=()=>render(b.dataset.page));
-$("#logout").onclick=()=>location.href="/auth/logout";
+$("#music").onclick=async()=>{const a=$("#introMusic");try{if(a.paused){await a.play();$("#music").textContent="⏸️ Pausar música";toast("🎵 Música activada");}else{a.pause();$("#music").textContent="🎵 Música de entrada";}}catch{toast("ℹ️ Falta /assets/nuts.mp3; el panel ya está preparado para ese archivo.");}};$("#logout").onclick=()=>location.href="/auth/logout";
 boot();
 </script>
 </body>
