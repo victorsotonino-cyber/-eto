@@ -36,7 +36,7 @@ const DASHBOARD_FILE = path.join(DATA_DIR, "dashboard-data.json");
 const DB_VERSION = 4;
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 128 * 1024;
-const MAX_DASHBOARD_SESSIONS = 2;
+const MAX_DASHBOARD_SESSIONS = 100;
 const DASHBOARD_OWNERS = [
   { role: "Dueño", name: "Camtrax2024" },
   { role: "Dev", name: "srkid" }
@@ -2518,7 +2518,7 @@ const server = http.createServer(async (req, res) => {
 
       cleanupDashboardSessions();
       if (sessions.size >= MAX_DASHBOARD_SESSIONS) {
-        return sendJSON(res, 429, { error: "El panel ya tiene 2 sesiones activas. Cierra una sesión antes de entrar." });
+        return sendJSON(res, 429, { error: "El panel alcanzó el máximo de sesiones activas. Inténtalo más tarde." });
       }
 
       const sessionId = crypto.randomUUID();
