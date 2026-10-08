@@ -18,12 +18,11 @@
 <div id="login" class="card login hidden">
   <div class="eyebrow">🔐 NEXUS CONTROL CENTER</div>
   <h1>Panel privado</h1>
-  <p class="muted">Acceso protegido. Solo pueden existir <b>2 sesiones activas</b> al mismo tiempo.</p>
+  <p class="muted">Introduce la contraseña y el panel se abrirá directamente. Solo pueden existir <b>2 sesiones activas</b> al mismo tiempo.</p>
   <label>🔑 Contraseña del panel</label>
   <input id="panelPassword" class="input" type="password" autocomplete="current-password" placeholder="Introduce la contraseña">
   <div class="row">
-    <button class="btn" id="unlockPanel">🔓 Desbloquear panel</button>
-    <a class="btn secondary" id="discordLogin" href="/auth/discord" style="pointer-events:none;opacity:.45">Discord →</a>
+    <button class="btn" id="unlockPanel">🔓 Entrar al panel</button>
   </div>
   <p id="loginStatus" class="muted" style="margin-top:12px"></p>
   <div class="card" style="margin-top:16px;padding:13px;background:#0b0810">
@@ -121,8 +120,20 @@ async function boot(){
  try{
   const me=await api("/api/me");if(!me.authenticated){
   $("#login").classList.remove("hidden");
-  const unlock=$("#unlockPanel"), pass=$("#panelPassword"), link=$("#discordLogin"), status=$("#loginStatus");
-  unlock.onclick=async()=>{unlock.disabled=true;status.textContent="Comprobando…";try{await api("/auth/password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:pass.value})});status.textContent="✅ Contraseña correcta. Ya puedes entrar con Discord.";link.style.pointerEvents="auto";link.style.opacity="1";toast("🔓 Panel desbloqueado");}catch(e){status.textContent="❌ "+e.message;}finally{unlock.disabled=false;}};
+  const unlock=$("#unlockPanel"), pass=$("#panelPassword"), status=$("#loginStatus");
+  unlock.onclick=async()=>{
+    unlock.disabled=true;
+    status.textContent="Comprobando…";
+    try{
+      await api("/auth/password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:pass.value})});
+      status.textContent="✅ Contraseña correcta. Abriendo panel…";
+      toast("🔓 Acceso concedido");
+      setTimeout(()=>location.reload(),250);
+    }catch(e){
+      status.textContent="❌ "+e.message;
+      unlock.disabled=false;
+    }
+  };
   pass.onkeydown=e=>{if(e.key==="Enter")unlock.click();};
   return;
 }
