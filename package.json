@@ -1,9 +1,17 @@
+
 {
   "name": "nexus-ticket-moderation-bot",
-  "version": "2.0.0",
-  "description": "Sistema profesional de tickets y moderación para Discord",
+  "version": "2.1.0",
+  "description": "Sistema profesional de tickets, moderación y panel de Nexus",
   "main": "index.js",
-  "scripts": { "start": "node index.js" },
-  "engines": { "node": ">=20 <25" },
-  "dependencies": { "discord.js": "^14.24.2" }
+  "scripts": {
+    "start": "node index.js",
+    "check": "node --check index.js"
+  },
+  "engines": {
+    "node": ">=20 <25"
+  },
+  "dependencies": {
+    "discord.js": "^14.24.2"
+  }
 }
