@@ -157,6 +157,8 @@ function defaultGuild() {
     tickets: {},
     warnings: {},
     vouches: {},
+    invites: {},
+    inviteMembers: {},
     staffQuestions: DEFAULT_STAFF_QUESTIONS.slice(),
     alterQuestions: DEFAULT_ALTER_QUESTIONS.slice(),
     activity: [],
@@ -178,6 +180,30 @@ function normalizeGuild(input) {
   g.activity = Array.isArray(g.activity) ? g.activity.filter(x => x && typeof x === "object").slice(0, 500) : [];
   g.warnings = g.warnings && typeof g.warnings === "object" && !Array.isArray(g.warnings) ? g.warnings : {};
   g.vouches = g.vouches && typeof g.vouches === "object" && !Array.isArray(g.vouches) ? g.vouches : {};
+  g.invites = g.invites && typeof g.invites === "object" && !Array.isArray(g.invites) ? g.invites : {};
+  g.inviteMembers = g.inviteMembers && typeof g.inviteMembers === "object" && !Array.isArray(g.inviteMembers) ? g.inviteMembers : {};
+  for (const [inviterId, stats] of Object.entries(g.invites)) {
+    if (!/^\\d{17,20}$/.test(inviterId) || !stats || typeof stats !== "object") {
+      delete g.invites[inviterId];
+      continue;
+    }
+    g.invites[inviterId] = {
+      joins: Math.max(0, Math.floor(Number(stats.joins) || 0)),
+      leaves: Math.max(0, Math.floor(Number(stats.leaves) || 0)),
+      bonus: Math.max(0, Math.floor(Number(stats.bonus) || 0))
+    };
+  }
+  for (const [memberId, record] of Object.entries(g.inviteMembers)) {
+    if (!/^\\d{17,20}$/.test(memberId) || !record || typeof record !== "object") {
+      delete g.inviteMembers[memberId];
+      continue;
+    }
+    g.inviteMembers[memberId] = {
+      inviterId: /^\\d{17,20}$/.test(String(record.inviterId || "")) ? String(record.inviterId) : null,
+      joinedAt: Math.max(0, Number(record.joinedAt) || 0),
+      left: Boolean(record.left)
+    };
+  }
   g.tickets = g.tickets && typeof g.tickets === "object" && !Array.isArray(g.tickets) ? g.tickets : {};
 
   const migratedTickets = {};
@@ -1353,6 +1379,15 @@ const commands = [
     .setDescription("Publica el formulario para postularse como Helper."),
 
   new SlashCommandBuilder()
+    .setName("invites")
+    .setDescription("Muestra las invitaciones de un usuario.")
+    .addUserOption(o => o.setName("usuario").setDescription("Usuario que quieres consultar.")),
+
+  new SlashCommandBuilder()
+    .setName("invites-leaderboard")
+    .setDescription("Muestra el top 10 de invitaciones del servidor."),
+
+  new SlashCommandBuilder()
     .setName("vouch")
     .setDescription("Añade un vouch a un usuario.")
     .addUserOption(o => o.setName("usuario").setDescription("Usuario que recibe el vouch.").setRequired(true))
@@ -1418,9 +1453,12 @@ const commands = [
       .addStringOption(o => o.setName("id").setDescription("ID del emoji.").setRequired(true)))
 ].map(c => c.toJSON());
 
+const inviteCache = new Map();
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildInvites,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
@@ -1443,6 +1481,61 @@ const DASHBOARD_COMMANDS = commands.map(command => ({
     }))
   }))
 }));
+
+function inviteStatsFor(guildData, userId) {
+  const stats = guildData.invites?.[userId] || { joins: 0, leaves: 0, bonus: 0 };
+  const joins = Math.max(0, Number(stats.joins) || 0);
+  const leaves = Math.max(0, Number(stats.leaves) || 0);
+  const bonus = Math.max(0, Number(stats.bonus) || 0);
+  return { total: joins + bonus, joined: Math.max(0, joins - leaves) + bonus, left: leaves, bonus };
+}
+
+async function refreshInviteCache(guild) {
+  try {
+    const invites = await guild.invites.fetch();
+    inviteCache.set(guild.id, new Map(invites.map(invite => [invite.code, Number(invite.uses) || 0])));
+    return invites;
+  } catch (error) {
+    console.warn("Nexus: no pude leer las invitaciones de " + guild.name + ". Comprueba el permiso Gestionar servidor. " + error.message);
+    return null;
+  }
+}
+
+async function trackInviteJoin(member) {
+  const guild = member.guild;
+  let inviterId = null;
+  const previous = inviteCache.get(guild.id);
+  const invites = await refreshInviteCache(guild);
+  if (invites && previous) {
+    const used = invites.find(invite => (Number(invite.uses) || 0) > (previous.get(invite.code) || 0));
+    inviterId = used?.inviter?.id || null;
+  }
+
+  const gd = getGuild(guild.id);
+  gd.inviteMembers[member.id] = { inviterId, joinedAt: Date.now(), left: false };
+  if (inviterId) {
+    if (!gd.invites[inviterId]) gd.invites[inviterId] = { joins: 0, leaves: 0, bonus: 0 };
+    gd.invites[inviterId].joins = (Number(gd.invites[inviterId].joins) || 0) + 1;
+    recordActivity(guild.id, "Invitación registrada", activityUser(member.user), "Invitado por <@" + inviterId + ">");
+  } else {
+    recordActivity(guild.id, "Miembro entró", activityUser(member.user), "Invitación no identificada");
+  }
+  db.guilds[guild.id] = gd;
+  scheduleSaveDB("invite join");
+}
+
+function trackInviteLeave(member) {
+  const gd = getGuild(member.guild.id);
+  const record = gd.inviteMembers?.[member.id];
+  if (!record || record.left) return;
+  record.left = true;
+  if (record.inviterId) {
+    if (!gd.invites[record.inviterId]) gd.invites[record.inviterId] = { joins: 0, leaves: 0, bonus: 0 };
+    gd.invites[record.inviterId].leaves = (Number(gd.invites[record.inviterId].leaves) || 0) + 1;
+  }
+  db.guilds[member.guild.id] = gd;
+  scheduleSaveDB("invite leave");
+}
 
 async function registerCommands() {
   if (!TOKEN) return;
@@ -1650,6 +1743,9 @@ client.once("ready", async () => {
   try { await registerCommands(); }
   catch (error) { console.error("Nexus: error registrando comandos:", error); }
 
+  const inviteGuild = client.guilds.cache.get(GUILD_ID);
+  if (inviteGuild) await refreshInviteCache(inviteGuild);
+
   try {
     await importEmojiPackOnReady();
   } catch (error) {
@@ -1807,6 +1903,44 @@ client.on("interactionCreate", async interaction => {
       saveDB("modlog off");
       await pushPanelState();
       return interaction.editReply({ content: "✅ Logs desactivados." });
+    }
+
+    if (name === "invites") {
+      const user = interaction.options.getUser("usuario") || interaction.user;
+      const gd = getGuild(interaction.guild.id);
+      const stats = inviteStatsFor(gd, user.id);
+      const embed = new EmbedBuilder()
+        .setColor(COLOR.purple)
+        .setTitle("Invitaciones de " + (user.globalName || user.username))
+        .setThumbnail(user.displayAvatarURL({ size: 128 }))
+        .setDescription(
+          "**Total:** " + stats.total + "\\n" +
+          "**Siguen en el servidor:** " + stats.joined + "\\n" +
+          "**Se han salido:** " + stats.left + "\\n" +
+          "**Añadidas manualmente:** " + stats.bonus
+        )
+        .setFooter({ text: "Nexus Invite Tracker" })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    if (name === "invites-leaderboard") {
+      const gd = getGuild(interaction.guild.id);
+      const rows = Object.entries(gd.invites || {})
+        .map(([userId, stats]) => ({ userId, ...inviteStatsFor(gd, userId) }))
+        .filter(item => item.total > 0)
+        .sort((a, b) => b.total - a.total || b.joined - a.joined)
+        .slice(0, 10);
+      const description = rows.length
+        ? rows.map((item, index) => "**" + (index + 1) + ".** <@" + item.userId + "> — **" + item.total + "** invitaciones (" + item.joined + " actuales)").join("\\n")
+        : "Todavía no hay invitaciones registradas.";
+      const embed = new EmbedBuilder()
+        .setColor(COLOR.purple)
+        .setTitle("Top 10 de invitaciones")
+        .setDescription(description)
+        .setFooter({ text: "Nexus Invite Tracker" })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed] });
     }
 
     if (name === "vouch") {
@@ -2364,9 +2498,29 @@ client.on("interactionCreate", async interaction => {
   }
 });
 
-client.on("messageCreate", message => {
+client.on("messageCreate", async message => {
   if (!message.guild || message.author?.bot) return;
   recordActivity(message.guild.id, "Mensaje", activityUser(message.author), "En #" + (message.channel?.name || message.channelId));
+
+  if (message.guild.id !== GUILD_ID) return;
+  const content = message.content.trim();
+  if (!/^!invites(?:\\s|$)/i.test(content)) return;
+  const target = message.mentions.users.first() || message.author;
+  const gd = getGuild(message.guild.id);
+  const stats = inviteStatsFor(gd, target.id);
+  const embed = new EmbedBuilder()
+    .setColor(COLOR.purple)
+    .setTitle("Invitaciones de " + (target.globalName || target.username))
+    .setThumbnail(target.displayAvatarURL({ size: 128 }))
+    .setDescription(
+      "**Total:** " + stats.total + "\\n" +
+      "**Siguen en el servidor:** " + stats.joined + "\\n" +
+      "**Se han salido:** " + stats.left + "\\n" +
+      "**Añadidas manualmente:** " + stats.bonus
+    )
+    .setFooter({ text: "Nexus Invite Tracker" })
+    .setTimestamp();
+  await message.reply({ embeds: [embed] }).catch(() => {});
 });
 
 client.on("messageDelete", message => {
@@ -2380,8 +2534,20 @@ client.on("messageUpdate", (oldMessage, newMessage) => {
   recordActivity(guild.id, "Mensaje editado", activityUser(newMessage.author), "En #" + (newMessage.channel?.name || newMessage.channelId));
 });
 
-client.on("guildMemberAdd", member => recordActivity(member.guild.id, "Miembro entró", activityUser(member.user), "Se unió"));
-client.on("guildMemberRemove", member => recordActivity(member.guild.id, "Miembro salió", activityUser(member.user), "Salió o fue expulsado"));
+client.on("inviteCreate", invite => {
+  if (invite.guild?.id === GUILD_ID) refreshInviteCache(invite.guild).catch(() => {});
+});
+client.on("inviteDelete", invite => {
+  if (invite.guild?.id === GUILD_ID) refreshInviteCache(invite.guild).catch(() => {});
+});
+client.on("guildMemberAdd", async member => {
+  recordActivity(member.guild.id, "Miembro entró", activityUser(member.user), "Se unió");
+  if (member.guild.id === GUILD_ID) await trackInviteJoin(member).catch(error => console.error("Nexus: error registrando invitación:", error));
+});
+client.on("guildMemberRemove", member => {
+  recordActivity(member.guild.id, "Miembro salió", activityUser(member.user), "Salió o fue expulsado");
+  if (member.guild.id === GUILD_ID) trackInviteLeave(member);
+});
 client.on("guildBanAdd", ban => recordActivity(ban.guild.id, "Ban", activityUser(ban.user), "Usuario baneado"));
 client.on("guildBanRemove", ban => recordActivity(ban.guild.id, "Unban", activityUser(ban.user), "Ban retirado"));
 client.on("channelCreate", channel => { if (channel.guild) recordActivity(channel.guild.id, "Canal creado", "Sistema", "#" + channel.name); });
