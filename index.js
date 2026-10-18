@@ -183,7 +183,7 @@ function normalizeGuild(input) {
   g.invites = g.invites && typeof g.invites === "object" && !Array.isArray(g.invites) ? g.invites : {};
   g.inviteMembers = g.inviteMembers && typeof g.inviteMembers === "object" && !Array.isArray(g.inviteMembers) ? g.inviteMembers : {};
   for (const [inviterId, stats] of Object.entries(g.invites)) {
-    if (!/^\\d{17,20}$/.test(inviterId) || !stats || typeof stats !== "object") {
+    if (!/^\d{17,20}$/.test(inviterId) || !stats || typeof stats !== "object") {
       delete g.invites[inviterId];
       continue;
     }
@@ -194,12 +194,12 @@ function normalizeGuild(input) {
     };
   }
   for (const [memberId, record] of Object.entries(g.inviteMembers)) {
-    if (!/^\\d{17,20}$/.test(memberId) || !record || typeof record !== "object") {
+    if (!/^\d{17,20}$/.test(memberId) || !record || typeof record !== "object") {
       delete g.inviteMembers[memberId];
       continue;
     }
     g.inviteMembers[memberId] = {
-      inviterId: /^\\d{17,20}$/.test(String(record.inviterId || "")) ? String(record.inviterId) : null,
+      inviterId: /^\d{17,20}$/.test(String(record.inviterId || "")) ? String(record.inviterId) : null,
       joinedAt: Math.max(0, Number(record.joinedAt) || 0),
       left: Boolean(record.left)
     };
@@ -1914,9 +1914,9 @@ client.on("interactionCreate", async interaction => {
         .setTitle("Invitaciones de " + (user.globalName || user.username))
         .setThumbnail(user.displayAvatarURL({ size: 128 }))
         .setDescription(
-          "**Total:** " + stats.total + "\\n" +
-          "**Siguen en el servidor:** " + stats.joined + "\\n" +
-          "**Se han salido:** " + stats.left + "\\n" +
+          "**Total:** " + stats.total + "\n" +
+          "**Siguen en el servidor:** " + stats.joined + "\n" +
+          "**Se han salido:** " + stats.left + "\n" +
           "**Añadidas manualmente:** " + stats.bonus
         )
         .setFooter({ text: "Nexus Invite Tracker" })
@@ -1932,7 +1932,7 @@ client.on("interactionCreate", async interaction => {
         .sort((a, b) => b.total - a.total || b.joined - a.joined)
         .slice(0, 10);
       const description = rows.length
-        ? rows.map((item, index) => "**" + (index + 1) + ".** <@" + item.userId + "> — **" + item.total + "** invitaciones (" + item.joined + " actuales)").join("\\n")
+        ? rows.map((item, index) => "**" + (index + 1) + ".** <@" + item.userId + "> — **" + item.total + "** invitaciones (" + item.joined + " actuales)").join("\n")
         : "Todavía no hay invitaciones registradas.";
       const embed = new EmbedBuilder()
         .setColor(COLOR.purple)
@@ -2504,7 +2504,7 @@ client.on("messageCreate", async message => {
 
   if (message.guild.id !== GUILD_ID) return;
   const content = message.content.trim();
-  if (!/^!invites(?:\\s|$)/i.test(content)) return;
+  if (!/^!invites(?:\s|$)/i.test(content)) return;
   const target = message.mentions.users.first() || message.author;
   const gd = getGuild(message.guild.id);
   const stats = inviteStatsFor(gd, target.id);
@@ -2513,9 +2513,9 @@ client.on("messageCreate", async message => {
     .setTitle("Invitaciones de " + (target.globalName || target.username))
     .setThumbnail(target.displayAvatarURL({ size: 128 }))
     .setDescription(
-      "**Total:** " + stats.total + "\\n" +
-      "**Siguen en el servidor:** " + stats.joined + "\\n" +
-      "**Se han salido:** " + stats.left + "\\n" +
+      "**Total:** " + stats.total + "\n" +
+      "**Siguen en el servidor:** " + stats.joined + "\n" +
+      "**Se han salido:** " + stats.left + "\n" +
       "**Añadidas manualmente:** " + stats.bonus
     )
     .setFooter({ text: "Nexus Invite Tracker" })
