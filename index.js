@@ -1490,35 +1490,55 @@ function inviteStatsFor(guildData, userId) {
   return { total: joins + bonus, joined: Math.max(0, joins - leaves) + bonus, left: leaves, bonus };
 }
 
-async function refreshInviteCache(guild) {
+async function fetchInviteSnapshot(guild) {
   try {
     const invites = await guild.invites.fetch();
-    inviteCache.set(guild.id, new Map(invites.map(invite => [invite.code, Number(invite.uses) || 0])));
     return invites;
   } catch (error) {
-    console.warn("Nexus: no pude leer las invitaciones de " + guild.name + ". Comprueba el permiso Gestionar servidor. " + error.message);
+    console.warn("Nexus: no pude leer invitaciones en " + guild.name + ". Activa Gestionar servidor para el bot. " + error.message);
     return null;
   }
+}
+
+async function refreshInviteCache(guild) {
+  const invites = await fetchInviteSnapshot(guild);
+  if (invites) inviteCache.set(guild.id, new Map(invites.map(invite => [invite.code, Number(invite.uses) || 0])));
+  return invites;
 }
 
 async function trackInviteJoin(member) {
   const guild = member.guild;
   let inviterId = null;
   const previous = inviteCache.get(guild.id);
-  const invites = await refreshInviteCache(guild);
-  if (invites && previous) {
-    const used = invites.find(invite => (Number(invite.uses) || 0) > (previous.get(invite.code) || 0));
-    inviterId = used?.inviter?.id || null;
+
+  // Discord puede actualizar el contador de usos unos instantes después del evento de entrada.
+  // Volvemos a consultar varias veces antes de marcar la invitación como desconocida.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 900));
+    const invites = await fetchInviteSnapshot(guild);
+    if (!invites) break;
+    const used = previous
+      ? invites.find(invite => (Number(invite.uses) || 0) > (previous.get(invite.code) || 0))
+      : null;
+    if (used) {
+      inviterId = used.inviter?.id || null;
+      inviteCache.set(guild.id, new Map(invites.map(invite => [invite.code, Number(invite.uses) || 0])));
+      break;
+    }
+    // Keep the old snapshot while retrying so a delayed usage increment can still be detected.
+    if (attempt === 3) inviteCache.set(guild.id, new Map(invites.map(invite => [invite.code, Number(invite.uses) || 0])));
   }
 
   const gd = getGuild(guild.id);
+  const priorRecord = gd.inviteMembers[member.id];
+  if (priorRecord && !priorRecord.left) return;
   gd.inviteMembers[member.id] = { inviterId, joinedAt: Date.now(), left: false };
   if (inviterId) {
     if (!gd.invites[inviterId]) gd.invites[inviterId] = { joins: 0, leaves: 0, bonus: 0 };
     gd.invites[inviterId].joins = (Number(gd.invites[inviterId].joins) || 0) + 1;
     recordActivity(guild.id, "Invitación registrada", activityUser(member.user), "Invitado por <@" + inviterId + ">");
   } else {
-    recordActivity(guild.id, "Miembro entró", activityUser(member.user), "Invitación no identificada");
+    recordActivity(guild.id, "Miembro entró", activityUser(member.user), "Invitación no identificada; revisa permisos y caché de invitaciones");
   }
   db.guilds[guild.id] = gd;
   scheduleSaveDB("invite join");
