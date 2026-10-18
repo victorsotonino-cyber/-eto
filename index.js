@@ -735,6 +735,10 @@ function isStaff(member) {
     (gd.staffRoleId ? member.roles.cache.has(gd.staffRoleId) : false);
 }
 
+function canClaimTicket(member) {
+  return Boolean(member?.roles?.cache?.has(STAFF_TEAM_ROLE_ID));
+}
+
 function ticketByChannel(guildId, channelId) {
   return Object.values(getGuild(guildId).tickets).find(t => t.channelId === channelId) || null;
 }
@@ -1532,6 +1536,9 @@ async function handleTicket(interaction) {
   }
 
   if (sub === "claim") {
+    if (!canClaimTicket(interaction.member)) {
+      return interaction.reply({ content: "❌ Solo <@&" + STAFF_TEAM_ROLE_ID + "> puede reclamar tickets.", ephemeral: true });
+    }
     ticket.claimedBy = interaction.user.id;
     saveDB("ticket reclamado");
     await channel.send({
@@ -1726,7 +1733,9 @@ client.on("interactionCreate", async interaction => {
       }
 
       if (interaction.customId === "ticket_claim") {
-        if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Solo Staff.", ephemeral: true });
+        if (!canClaimTicket(interaction.member)) {
+          return interaction.reply({ content: "❌ Solo <@&" + STAFF_TEAM_ROLE_ID + "> puede reclamar tickets.", ephemeral: true });
+        }
         ticket.claimedBy = interaction.user.id;
         saveDB("ticket reclamado");
         await interaction.channel.send({
