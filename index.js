@@ -1509,6 +1509,16 @@ const commands = [
       .setRequired(true)),
 
   new SlashCommandBuilder()
+    .setName("time-premium")
+    .setDescription("Muestra cuánto tiempo Premium te queda.")
+    .addUserOption(o => o.setName("usuario").setDescription("Solo Staff puede consultar a otro usuario.")),
+
+  new SlashCommandBuilder()
+    .setName("time-bassic")
+    .setDescription("Muestra cuánto tiempo Básico te queda.")
+    .addUserOption(o => o.setName("usuario").setDescription("Solo Staff puede consultar a otro usuario.")),
+
+  new SlashCommandBuilder()
     .setName("transferir")
     .setDescription("Transfiere tiempo de tu rol Premium o Básico a otro usuario.")
     .addUserOption(o => o.setName("usuario").setDescription("Usuario que recibirá el tiempo.").setRequired(true))
@@ -2228,6 +2238,43 @@ client.on("interactionCreate", async interaction => {
         .setFooter({ text: "Nexus Invite Tracker" })
         .setTimestamp();
       return interaction.reply({ embeds: [embed] });
+    }
+
+    if (name === "time-premium" || name === "time-bassic") {
+      const targetUser = interaction.options.getUser("usuario") || interaction.user;
+      if (targetUser.id !== interaction.user.id && !isStaff(interaction.member)) {
+        return interaction.reply({ content: "Solo Staff puede consultar el tiempo de otra persona.", ephemeral: true });
+      }
+
+      const roleId = name === "time-premium" ? PREMIUM_ROLE_ID : "1554248808194642044";
+      const roleLabel = name === "time-premium" ? "Premium" : "Básico";
+      const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+      if (!member) return interaction.reply({ content: "No encontré a ese usuario dentro del servidor.", ephemeral: true });
+
+      const gd = getGuild(interaction.guild.id);
+      const timerKey = member.id + ":" + roleId;
+      const record = gd.premiumRoleTimers?.[timerKey] ||
+        (roleId === PREMIUM_ROLE_ID ? gd.premiumRoleTimers?.[member.id] : null);
+      const expiresAt = Number(record?.expiresAt);
+      const now = Date.now();
+
+      if (!record || !Number.isFinite(expiresAt) || expiresAt <= now || !member.roles.cache.has(roleId)) {
+        return interaction.reply({
+          content: (targetUser.id === interaction.user.id ? "No tienes" : targetUser.username + " no tiene") +
+            " tiempo temporal activo registrado para el rol **" + roleLabel + "**.",
+          ephemeral: true
+        });
+      }
+
+      const remaining = expiresAt - now;
+      const embed = new EmbedBuilder()
+        .setColor(COLOR.purple)
+        .setTitle("Tiempo restante: " + roleLabel)
+        .setThumbnail(targetUser.displayAvatarURL({ size: 128 }))
+        .setDescription("**Usuario:** " + targetUser + "\n**Rol:** <@&" + roleId + ">\n**Tiempo restante:** **" + formatDuration(remaining) + "**")
+        .setFooter({ text: "Nexus • El tiempo se actualiza automáticamente" })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
     if (name === "transferir") {
