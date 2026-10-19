@@ -213,7 +213,7 @@ function normalizeGuild(input) {
   g.premiumRoleTimers = g.premiumRoleTimers && typeof g.premiumRoleTimers === "object" && !Array.isArray(g.premiumRoleTimers) ? g.premiumRoleTimers : {};
   for (const [userId, record] of Object.entries(g.premiumRoleTimers)) {
     const expiresAt = Number(record?.expiresAt);
-    if (!/^\\d{17,20}$/.test(userId) || !record || typeof record !== "object" || !Number.isFinite(expiresAt) || expiresAt <= 0) {
+    if (!/^\d{17,20}$/.test(userId) || !record || typeof record !== "object" || !Number.isFinite(expiresAt) || expiresAt <= 0) {
       delete g.premiumRoleTimers[userId];
       continue;
     }
@@ -1645,7 +1645,7 @@ function trackInviteLeave(member) {
 }
 
 function parseDurationMs(value) {
-  const match = String(value || "").trim().match(/^(\\d{1,3})(m|h|d|w)$/i);
+  const match = String(value || "").trim().match(/^(\d{1,3})(m|h|d|w)$/i);
   if (!match) return null;
   const amount = Number(match[1]);
   const unit = match[2].toLowerCase();
@@ -1698,7 +1698,10 @@ async function processExpiredPremiumRoles() {
         continue;
       }
 
-      const role = guild.roles.cache.get(PREMIUM_ROLE_ID);
+      const role = await guild.roles.fetch(PREMIUM_ROLE_ID).catch(error => {
+        if (Number(error?.code) === 10011) return null;
+        throw error;
+      });
       if (!role) {
         console.error("Nexus: no existe el rol Premium " + PREMIUM_ROLE_ID + "; se limpia el temporizador de " + userId + ".");
         delete gd.premiumRoleTimers[userId];
