@@ -50,6 +50,24 @@ const FULL_ACCESS_ROLE_ID = "1554252558359470182";
 const POST_STAFF_NOTIFY_ROLE_IDS = ["1554708798499725393", "1554708987700715531"];
 
 const DEFAULT_STAFF_QUESTIONS = [
+  "👤 Confirma tu nombre y usuario de Discord (tag o ID).",
+  "🎂 ¿Qué edad tienes?",
+  "🌎 ¿De qué país eres y cuál es tu zona horaria?",
+  "⏰ ¿Cuántas horas al día y qué días puedes estar activo?",
+  "🛡️ ¿A qué puesto te postulas: Helper, Moderador o Staff? ¿Por qué?",
+  "📚 ¿Tienes experiencia previa? Indica el servidor y tus responsabilidades. Si no tienes, dilo con sinceridad.",
+  "🎯 ¿Por qué deseas formar parte del equipo y qué aportarías a la comunidad?",
+  "🚨 Si detectas spam, una estafa o una raid, ¿qué harías paso a paso y qué pruebas guardarías?",
+  "⚖️ Si un amigo incumple las reglas, ¿cómo actuarías para ser imparcial?",
+  "🤝 Si dos usuarios discuten y ambos te acusan, ¿cómo investigarías y calmarías la situación?",
+  "🔇 Si un usuario te insulta y se niega a obedecer, ¿cómo actuarías sin abusar de tus permisos?",
+  "🧑‍⚖️ ¿Cuándo escalarías un caso a un Moderador o superior en vez de resolverlo por tu cuenta?",
+  "🔐 ¿Cómo protegerías la información privada del equipo y de los miembros?",
+  "⭐ ¿Por qué deberíamos elegirte? Menciona una fortaleza y un ejemplo que la demuestre.",
+  "📌 ¿Aceptas respetar las reglas, mantener la neutralidad y cumplir el compromiso de actividad? ¿Algo más que debamos saber?"
+];
+
+const LEGACY_DEFAULT_STAFF_QUESTIONS = [
   "👤 ¿Cuál es tu nombre/usuario de Discord?",
   "🎂 ¿Qué edad tienes?",
   "🌎 ¿De qué país eres y cuál es tu zona horaria?",
@@ -146,6 +164,14 @@ function sanitizeQuestions(value, fallback) {
     .slice(0, 20);
 }
 
+function upgradeStaffQuestions(value) {
+  const questions = sanitizeQuestions(value, DEFAULT_STAFF_QUESTIONS);
+  if (!questions.length || JSON.stringify(questions) === JSON.stringify(LEGACY_DEFAULT_STAFF_QUESTIONS)) {
+    return DEFAULT_STAFF_QUESTIONS.slice();
+  }
+  return questions;
+}
+
 function defaultGuild() {
   return {
     schemaVersion: DB_VERSION,
@@ -175,7 +201,7 @@ function normalizeGuild(input) {
   g.staffRoleId = sanitizeSnowflake(g.staffRoleId);
   g.logsChannelId = sanitizeSnowflake(g.logsChannelId);
   g.vouchChannelId = sanitizeSnowflake(g.vouchChannelId);
-  g.staffQuestions = sanitizeQuestions(g.staffQuestions, DEFAULT_STAFF_QUESTIONS);
+  g.staffQuestions = upgradeStaffQuestions(g.staffQuestions);
   g.alterQuestions = sanitizeQuestions(g.alterQuestions, DEFAULT_ALTER_QUESTIONS);
   g.activity = Array.isArray(g.activity) ? g.activity.filter(x => x && typeof x === "object").slice(0, 500) : [];
   g.warnings = g.warnings && typeof g.warnings === "object" && !Array.isArray(g.warnings) ? g.warnings : {};
@@ -541,7 +567,7 @@ async function syncPanelConfig() {
         local.staffRoleId = sanitizeSnowflake(remote.staffRoleId);
         local.logsChannelId = sanitizeSnowflake(remote.logsChannelId);
         local.vouchChannelId = sanitizeSnowflake(remote.vouchChannelId);
-        local.staffQuestions = sanitizeQuestions(remote.staffQuestions, DEFAULT_STAFF_QUESTIONS);
+        local.staffQuestions = upgradeStaffQuestions(remote.staffQuestions);
         local.alterQuestions = sanitizeQuestions(remote.alterQuestions, DEFAULT_ALTER_QUESTIONS);
         local.configVersion = remoteVersion;
         local.updatedAt = Date.now();
@@ -960,6 +986,24 @@ function welcomeEmbed(user, type) {
     .setTimestamp();
 }
 
+function applicationWelcomeEmbed(user, questions) {
+  const form = renderQuestions(upgradeStaffQuestions(questions));
+  const description =
+    "Hola " + user + ", este es tu **ticket privado de postulación**.\n\n" +
+    "📋 **Instrucciones**\n" +
+    "• Responde cada pregunta con su número y una respuesta clara.\n" +
+    "• Usa ejemplos reales y contesta con sinceridad.\n" +
+    "• No compartas contraseñas ni información sensible.\n\n" +
+    "**🛡️ Formulario de Staff**\n" + form +
+    "\n📌 El equipo revisará tu solicitud cuando esté completa. Evita etiquetar repetidamente al personal.";
+  return new EmbedBuilder()
+    .setColor(COLOR.purple)
+    .setTitle("🛡️ Postulación a Staff • Formulario")
+    .setDescription(description.slice(0, 4096))
+    .setFooter({ text: BOT_BRAND + " • Selección de Staff" })
+    .setTimestamp();
+}
+
 async function sendLog(guild, embed) {
   const id = getGuild(guild.id).logsChannelId;
   if (!id) return;
@@ -1089,12 +1133,26 @@ async function createTicket(guild, user, type) {
     saveDB("ticket creado");
 
     const mentions = [user.toString(), "<@&" + STAFF_TEAM_ROLE_ID + ">"];
-    if (type === "rewards") mentions.push("<@&" + REWARD_ROLE_ID + ">");
+    const allowedRoleMentions = [STAFF_TEAM_ROLE_ID];
+
+    if (type === "rewards") {
+      mentions.push("<@&" + REWARD_ROLE_ID + ">");
+      allowedRoleMentions.push(REWARD_ROLE_ID);
+    }
+    if (type === "applications") {
+      for (const roleId of POST_STAFF_NOTIFY_ROLE_IDS) {
+        mentions.push("<@&" + roleId + ">");
+        allowedRoleMentions.push(roleId);
+      }
+    }
 
     try {
       await channel.send({
         content: mentions.join(" "),
-        embeds: [welcomeEmbed(user, type)],
+        allowedMentions: { users: [user.id], roles: allowedRoleMentions },
+        embeds: [type === "applications"
+          ? applicationWelcomeEmbed(user, gd.staffQuestions)
+          : welcomeEmbed(user, type)],
         components: [ticketButtons(false)]
       });
     } catch (error) {
@@ -2209,32 +2267,41 @@ client.on("interactionCreate", async interaction => {
     }
 
     if (name === "post-staff") {
+      if (!isStaff(interaction.member)) {
+        return interaction.reply({ content: "❌ Solo el Staff autorizado puede publicar el formulario.", ephemeral: true });
+      }
+
       await interaction.deferReply();
       await syncPanelConfig();
-      const questions = getGuild(interaction.guild.id).staffQuestions.length
-        ? getGuild(interaction.guild.id).staffQuestions
-        : DEFAULT_STAFF_QUESTIONS;
+      const questions = upgradeStaffQuestions(getGuild(interaction.guild.id).staffQuestions);
 
       const description =
-        "**📋 Responde las preguntas en orden.**\n" +
-        "Copia el número de cada pregunta y escribe tu respuesta debajo.\n\n" +
+        "**📋 POSTULACIÓN OFICIAL AL EQUIPO**\n" +
+        "Lee las preguntas y respóndelas por orden dentro de un ticket privado de **Postulaciones**.\n" +
+        "Escribe respuestas completas, sinceras y con ejemplos cuando sea posible.\n\n" +
+        "**Preguntas de selección**\n" +
         renderQuestions(questions) +
-        "📌 **Buscamos personas activas, responsables, respetuosas y comprometidas con la comunidad.**\n\n" +
-        POST_STAFF_NOTIFY_ROLE_IDS.map(id => "<@&" + id + ">").join(" ");
+        "\n📌 **Se valoran la actividad, el respeto, la imparcialidad, el criterio y el trabajo en equipo.**";
 
       return interaction.editReply({
+        content: POST_STAFF_NOTIFY_ROLE_IDS.map(id => "<@&" + id + ">").join(" "),
+        allowedMentions: { roles: POST_STAFF_NOTIFY_ROLE_IDS },
         embeds: [
           new EmbedBuilder()
             .setColor(COLOR.purple)
-            .setTitle("🛡️ FORMULARIO — POSTULACIÓN A HELPER")
-            .setDescription(description)
-            .setFooter({ text: BOT_BRAND + " • Postulación a Helper" })
+            .setTitle("🛡️ FORMULARIO — POSTULACIÓN A HELPER / STAFF")
+            .setDescription(description.slice(0, 4096))
+            .setFooter({ text: BOT_BRAND + " • Postulación a Staff" })
             .setTimestamp()
         ]
       });
     }
 
     if (name === "post-alter") {
+      if (!isStaff(interaction.member)) {
+        return interaction.reply({ content: "❌ Solo el Staff autorizado puede publicar el formulario.", ephemeral: true });
+      }
+
       await interaction.deferReply();
       await syncPanelConfig();
       const questions = getGuild(interaction.guild.id).alterQuestions.length
@@ -2783,7 +2850,7 @@ const server = http.createServer(async (req, res) => {
       if (Object.prototype.hasOwnProperty.call(payload, "staffRoleId")) g.staffRoleId = sanitizeSnowflake(payload.staffRoleId);
       if (Object.prototype.hasOwnProperty.call(payload, "logsChannelId")) g.logsChannelId = sanitizeSnowflake(payload.logsChannelId);
       if (Object.prototype.hasOwnProperty.call(payload, "vouchChannelId")) g.vouchChannelId = sanitizeSnowflake(payload.vouchChannelId);
-      if (Object.prototype.hasOwnProperty.call(payload, "staffQuestions")) g.staffQuestions = sanitizeQuestions(payload.staffQuestions, DEFAULT_STAFF_QUESTIONS);
+      if (Object.prototype.hasOwnProperty.call(payload, "staffQuestions")) g.staffQuestions = upgradeStaffQuestions(payload.staffQuestions);
       if (Object.prototype.hasOwnProperty.call(payload, "alterQuestions")) g.alterQuestions = sanitizeQuestions(payload.alterQuestions, DEFAULT_ALTER_QUESTIONS);
 
       const now = Date.now();
@@ -2858,7 +2925,7 @@ const server = http.createServer(async (req, res) => {
         g.staffRoleId = sanitizeSnowflake(payload.staffRoleId);
         g.logsChannelId = sanitizeSnowflake(payload.logsChannelId);
         g.vouchChannelId = sanitizeSnowflake(payload.vouchChannelId);
-        g.staffQuestions = sanitizeQuestions(payload.staffQuestions, DEFAULT_STAFF_QUESTIONS);
+        g.staffQuestions = upgradeStaffQuestions(payload.staffQuestions);
         g.alterQuestions = sanitizeQuestions(payload.alterQuestions, DEFAULT_ALTER_QUESTIONS);
         g.configVersion = incomingVersion;
         g.updatedAt = Date.now();
