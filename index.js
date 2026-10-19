@@ -1818,9 +1818,9 @@ function buildKeyControlEmbed(tier = "premium") {
     .setColor(basic ? COLOR.blue : COLOR.purple)
     .setTitle("🔐 Panel de claves NOXXA")
     .setDescription(
-      "Crea claves de un solo uso y elige el rango y su duración.\\n\\n" +
-      "**Rango seleccionado:** " + (basic ? "Básico" : "Premium") + " (<@&" + roleId + ">)\\n" +
-      "**Duración:** la eliges al pulsar Crear clave (por ejemplo, 2h, 7d o 30m).\\n" +
+      "Crea claves de un solo uso y elige el rango y su duración.\n\n" +
+      "**Rango seleccionado:** " + (basic ? "Básico" : "Premium") + " (<@&" + roleId + ">)\n" +
+      "**Duración:** la eliges al pulsar Crear clave (por ejemplo, 2h, 7d o 30m).\n" +
       "**Seguridad:** solo los dos usuarios autorizados pueden usar este panel."
     )
     .setFooter({ text: "NOXXA • Claves de un solo uso • Máximo 365 días" });
@@ -2286,11 +2286,11 @@ client.on("interactionCreate", async interaction => {
         .setColor(tier === "basic" ? COLOR.blue : COLOR.purple)
         .setTitle("✅ Claves NOXXA creadas")
         .setDescription(
-          "**Rango:** <@&" + roleId + "> (" + roleLabel + ")\\n" +
-          "**Tiempo que recibe cada persona:** **" + formatKeyDuration(durationMs) + "**\\n" +
-          "**Uso:** una vez por clave.\\n\\n" +
-          generatedCodes.map((code, index) => "**" + (index + 1) + ".** " + code).join("\\n") +
-          "\\n\\nCopia las claves antes de cerrar este mensaje."
+          "**Rango:** <@&" + roleId + "> (" + roleLabel + ")\n" +
+          "**Tiempo que recibe cada persona:** **" + formatKeyDuration(durationMs) + "**\n" +
+          "**Uso:** una vez por clave.\n\n" +
+          generatedCodes.map((code, index) => "**" + (index + 1) + ".** " + code).join("\n") +
+          "\n\nCopia las claves antes de cerrar este mensaje."
         )
         .setFooter({ text: "NOXXA • Panel privado de claves" })
         .setTimestamp();
