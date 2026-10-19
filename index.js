@@ -1764,19 +1764,17 @@ async function processExpiredPremiumRoles() {
           continue;
         }
 
-        if (member.roles.cache.has(roleId)) {
-          // Si Discord rechaza la retirada, el registro se conserva y se reintenta.
-          await member.roles.remove(expiringRole, "Rol temporal vencido automáticamente");
-          console.log("Nexus: rol temporal " + roleId + " retirado por vencimiento a " + userId + ".");
-          recordActivity(
-            guild.id,
-            "Rol temporal vencido",
-            activityUser(member.user),
-            "Se retiró <@&" + roleId + "> automáticamente"
-          );
-        } else {
-          console.log("Nexus: el miembro " + userId + " ya no tenía el rol temporal " + roleId + ".");
-        }
+        // No dependemos de la caché de roles: puede estar desactualizada tras un reinicio.
+        // La ruta de eliminación individual de Discord es idempotente para este caso;
+        // si Discord rechaza la operación, el catch conserva el temporizador y reintenta.
+        await member.roles.remove(roleId, "Rol temporal vencido automáticamente");
+        console.log("Nexus: retirada solicitada para el rol temporal " + roleId + " de " + userId + ".");
+        recordActivity(
+          guild.id,
+          "Rol temporal vencido",
+          activityUser(member.user),
+          "Se procesó la retirada de <@&" + roleId + "> automáticamente"
+        );
 
         delete gd.premiumRoleTimers[timerKey];
         changed = true;
