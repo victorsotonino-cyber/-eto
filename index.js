@@ -1509,6 +1509,22 @@ const commands = [
       .setRequired(true)),
 
   new SlashCommandBuilder()
+    .setName("give-premium")
+    .setDescription("Añade o quita tiempo al Premium de un usuario.")
+    .addUserOption(o => o.setName("usuario").setDescription("Usuario cuyo tiempo vas a cambiar.").setRequired(true))
+    .addStringOption(o => o.setName("accion").setDescription("Añadir o quitar tiempo.").setRequired(true)
+      .addChoices({ name: "Añadir tiempo", value: "add" }, { name: "Quitar tiempo", value: "remove" }))
+    .addStringOption(o => o.setName("tiempo").setDescription("Tiempo: 30m, 2h, 1d, 2w.").setMinLength(2).setMaxLength(6).setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName("give-basico")
+    .setDescription("Añade o quita tiempo al rol Básico de un usuario.")
+    .addUserOption(o => o.setName("usuario").setDescription("Usuario cuyo tiempo vas a cambiar.").setRequired(true))
+    .addStringOption(o => o.setName("accion").setDescription("Añadir o quitar tiempo.").setRequired(true)
+      .addChoices({ name: "Añadir tiempo", value: "add" }, { name: "Quitar tiempo", value: "remove" }))
+    .addStringOption(o => o.setName("tiempo").setDescription("Tiempo: 30m, 2h, 1d, 2w.").setMinLength(2).setMaxLength(6).setRequired(true)),
+
+  new SlashCommandBuilder()
     .setName("vouch")
     .setDescription("Añade un vouch a un usuario.")
     .addUserOption(o => o.setName("usuario").setDescription("Usuario que recibe el vouch.").setRequired(true))
@@ -2202,6 +2218,95 @@ client.on("interactionCreate", async interaction => {
         .setTitle("Top 10 de invitaciones")
         .setDescription(description)
         .setFooter({ text: "Nexus Invite Tracker" })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    if (name === "give-premium" || name === "give-basico") {
+      if (!isStaff(interaction.member)) {
+        return interaction.reply({ content: "No tienes permisos de Staff para modificar el tiempo de estos roles.", ephemeral: true });
+      }
+
+      const targetUser = interaction.options.getUser("usuario", true);
+      const action = interaction.options.getString("accion", true);
+      const durationInput = interaction.options.getString("tiempo", true);
+      const durationMs = parseDurationMs(durationInput);
+      if (!durationMs) {
+        return interaction.reply({ content: "Tiempo inválido. Usa `30m`, `2h`, `1d` o `2w` (máximo 365 días por operación).", ephemeral: true });
+      }
+      if (targetUser.bot) return interaction.reply({ content: "No puedes modificar el tiempo de un bot.", ephemeral: true });
+
+      const roleId = name === "give-premium" ? PREMIUM_ROLE_ID : "1554248808194642044";
+      const roleLabel = name === "give-premium" ? "Premium" : "Básico";
+      const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+      if (!role) return interaction.reply({ content: "No encontré el rol " + roleLabel + " (<@&" + roleId + ">).", ephemeral: true });
+
+      const botMember = interaction.guild.members.me || await interaction.guild.members.fetchMe().catch(() => null);
+      if (!botMember?.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        return interaction.reply({ content: "Necesito el permiso **Gestionar roles**.", ephemeral: true });
+      }
+      if (!role.editable || botMember.roles.highest.comparePositionTo(role) <= 0) {
+        return interaction.reply({ content: "No puedo gestionar ese rol. Coloca el rol del bot por encima de " + roleLabel + ".", ephemeral: true });
+      }
+
+      const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+      if (!member) return interaction.reply({ content: "No encontré a ese usuario dentro del servidor.", ephemeral: true });
+
+      const gd = getGuild(interaction.guild.id);
+      if (!gd.premiumRoleTimers || typeof gd.premiumRoleTimers !== "object" || Array.isArray(gd.premiumRoleTimers)) gd.premiumRoleTimers = {};
+      const timerKey = targetUser.id + ":" + roleId;
+      const legacy = gd.premiumRoleTimers[targetUser.id];
+      let record = gd.premiumRoleTimers[timerKey];
+      if (!record && legacy && roleId === PREMIUM_ROLE_ID) {
+        record = legacy;
+        delete gd.premiumRoleTimers[targetUser.id];
+      }
+
+      const now = Date.now();
+      const oldExpiry = Number(record?.expiresAt);
+      let newExpiry;
+      if (action === "add") {
+        newExpiry = Math.max(now, Number.isFinite(oldExpiry) ? oldExpiry : now) + durationMs;
+        if (!member.roles.cache.has(roleId)) {
+          try {
+            await member.roles.add(role, "Rol temporal " + roleLabel + " ajustado por " + interaction.user.tag);
+          } catch (error) {
+            console.error("Nexus: no pude asignar " + roleLabel + " en give command:", error);
+            return interaction.reply({ content: "No pude asignar el rol. Revisa permisos y jerarquía del bot.", ephemeral: true });
+          }
+        }
+        gd.premiumRoleTimers[timerKey] = { roleId, expiresAt: newExpiry, grantedBy: record?.grantedBy || interaction.user.id, grantedAt: record?.grantedAt || now };
+      } else {
+        if (!record || !Number.isFinite(oldExpiry)) {
+          return interaction.reply({ content: "Ese usuario no tiene un vencimiento temporal registrado para " + roleLabel + ". Usa primero /role-premium o /role-bassic para asignarle una duración.", ephemeral: true });
+        }
+        newExpiry = oldExpiry - durationMs;
+        if (newExpiry <= now) {
+          try {
+            if (member.roles.cache.has(roleId)) await member.roles.remove(roleId, "Tiempo de " + roleLabel + " reducido a cero por " + interaction.user.tag);
+          } catch (error) {
+            console.error("Nexus: no pude retirar " + roleLabel + " en give command:", error);
+            return interaction.reply({ content: "No pude retirar el rol. Revisa permisos y jerarquía del bot; el temporizador se conserva.", ephemeral: true });
+          }
+          delete gd.premiumRoleTimers[timerKey];
+          if (roleId === PREMIUM_ROLE_ID) delete gd.premiumRoleTimers[targetUser.id];
+          db.guilds[interaction.guild.id] = gd;
+          saveDB("give role time remove");
+          recordActivity(interaction.guild.id, roleLabel + " temporal retirado", activityUser(targetUser), "El tiempo se redujo a cero por " + interaction.user.tag);
+          return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLOR.orange).setTitle(roleLabel + " retirado").setDescription("Se quitó " + formatDuration(durationMs) + " y el tiempo llegó a cero. Se retiró <@&" + roleId + "> de " + targetUser + ".").setTimestamp()] });
+        }
+        gd.premiumRoleTimers[timerKey] = { ...record, roleId, expiresAt: newExpiry };
+      }
+
+      db.guilds[interaction.guild.id] = gd;
+      saveDB("give role time adjustment");
+      recordActivity(interaction.guild.id, roleLabel + " temporal ajustado", activityUser(targetUser),
+        (action === "add" ? "Tiempo añadido: " : "Tiempo quitado: ") + formatDuration(durationMs) + "; nuevo vencimiento <t:" + Math.floor(newExpiry / 1000) + ":F>");
+      const embed = new EmbedBuilder()
+        .setColor(COLOR.purple)
+        .setTitle(roleLabel + ": tiempo actualizado")
+        .setDescription("**Usuario:** " + targetUser + "\n**Acción:** " + (action === "add" ? "Tiempo añadido" : "Tiempo quitado") +
+          " (" + formatDuration(durationMs) + ")\n**Nuevo vencimiento:** <t:" + Math.floor(newExpiry / 1000) + ":F> (<t:" + Math.floor(newExpiry / 1000) + ":R>)")
         .setTimestamp();
       return interaction.reply({ embeds: [embed] });
     }
