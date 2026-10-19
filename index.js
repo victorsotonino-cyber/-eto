@@ -1794,6 +1794,59 @@ function formatDuration(ms) {
   return parts.join(" y ") || "menos de un segundo";
 }
 
+
+function formatKeyDuration(durationMs) {
+  if (durationMs % 86_400_000 === 0) {
+    const n = durationMs / 86_400_000;
+    return n + (n === 1 ? " día" : " días");
+  }
+  if (durationMs % 3_600_000 === 0) {
+    const n = durationMs / 3_600_000;
+    return n + (n === 1 ? " hora" : " horas");
+  }
+  if (durationMs % 60_000 === 0) {
+    const n = durationMs / 60_000;
+    return n + (n === 1 ? " minuto" : " minutos");
+  }
+  return Math.floor(durationMs / 1000) + " segundos";
+}
+
+function buildKeyControlEmbed(tier = "premium") {
+  const basic = tier === "basic";
+  const roleId = basic ? BASIC_ROLE_ID : PREMIUM_ROLE_ID;
+  return new EmbedBuilder()
+    .setColor(basic ? COLOR.blue : COLOR.purple)
+    .setTitle("🔐 Panel de claves NOXXA")
+    .setDescription(
+      "Crea claves de un solo uso y elige el rango y su duración.\\n\\n" +
+      "**Rango seleccionado:** " + (basic ? "Básico" : "Premium") + " (<@&" + roleId + ">)\\n" +
+      "**Duración:** la eliges al pulsar Crear clave (por ejemplo, 2h, 7d o 30m).\\n" +
+      "**Seguridad:** solo los dos usuarios autorizados pueden usar este panel."
+    )
+    .setFooter({ text: "NOXXA • Claves de un solo uso • Máximo 365 días" });
+}
+
+function buildKeyControlComponents(tier = "premium") {
+  return [
+    new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId("key_control_tier")
+        .setPlaceholder("Elige el rango de la clave")
+        .addOptions(
+          { label: "Premium", value: "premium", description: "Rol Premium", default: tier === "premium" },
+          { label: "Básico", value: "basic", description: "Rol Básico", default: tier === "basic" }
+        )
+    ),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("key_control_create")
+        .setLabel("Crear clave")
+        .setEmoji("🔑")
+        .setStyle(ButtonStyle.Success)
+    )
+  ];
+}
+
 let premiumExpirySweepRunning = false;
 
 async function processExpiredPremiumRoles() {
@@ -2122,6 +2175,128 @@ client.on("interactionCreate", async interaction => {
       );
     }
 
+    if (interaction.isStringSelectMenu() && interaction.customId === "key_control_tier") {
+      if (!interaction.guild || !KEY_GENERATE_ALLOWED_USER_IDS.includes(interaction.user.id)) {
+        return interaction.reply({ content: "⛔ No tienes permiso para usar el panel de claves.", ephemeral: true });
+      }
+      const tier = interaction.values[0] === "basic" ? "basic" : "premium";
+      KEY_CONTROL_SESSIONS.set(interaction.user.id, { tier, updatedAt: Date.now() });
+      return interaction.update({
+        embeds: [buildKeyControlEmbed(tier)],
+        components: buildKeyControlComponents(tier)
+      });
+    }
+
+    if (interaction.isButton() && interaction.customId === "key_control_create") {
+      if (!interaction.guild || !KEY_GENERATE_ALLOWED_USER_IDS.includes(interaction.user.id)) {
+        return interaction.reply({ content: "⛔ No tienes permiso para usar el panel de claves.", ephemeral: true });
+      }
+      const session = KEY_CONTROL_SESSIONS.get(interaction.user.id);
+      if (!session || Date.now() - session.updatedAt > 15 * 60 * 1000) {
+        return interaction.reply({ content: "El panel caducó. Ejecuta /key-control otra vez.", ephemeral: true });
+      }
+      const tier = session.tier === "basic" ? "basic" : "premium";
+      const modal = new ModalBuilder()
+        .setCustomId("key_control_modal_" + tier)
+        .setTitle("Crear clave NOXXA • " + (tier === "basic" ? "Básico" : "Premium"))
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("duration")
+              .setLabel("Duración (30m, 2h, 7d)")
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder("2h")
+              .setRequired(true)
+              .setMaxLength(4)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("quantity")
+              .setLabel("Cantidad de claves (1 a 10)")
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder("1")
+              .setValue("1")
+              .setRequired(true)
+              .setMaxLength(2)
+          )
+        );
+      return interaction.showModal(modal);
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId.startsWith("key_control_modal_")) {
+      if (!interaction.guild || !KEY_GENERATE_ALLOWED_USER_IDS.includes(interaction.user.id)) {
+        return interaction.reply({ content: "⛔ No tienes permiso para crear claves.", ephemeral: true });
+      }
+      const tier = interaction.customId.endsWith("_basic") ? "basic" : "premium";
+      const roleId = tier === "basic" ? BASIC_ROLE_ID : PREMIUM_ROLE_ID;
+      const roleLabel = tier === "basic" ? "Básico" : "Premium";
+      const durationInput = interaction.fields.getTextInputValue("duration");
+      const durationMs = parseDurationMs(durationInput);
+      if (!durationMs) {
+        return interaction.reply({ content: "Duración inválida. Usa 30m, 2h, 7d o 2w. El máximo es 365 días.", ephemeral: true });
+      }
+      const quantity = Number(interaction.fields.getTextInputValue("quantity"));
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
+        return interaction.reply({ content: "La cantidad debe ser un número entero entre 1 y 10.", ephemeral: true });
+      }
+
+      const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+      if (!role) {
+        return interaction.reply({ content: "No encontré el rol " + roleLabel + " (<@&" + roleId + ">).", ephemeral: true });
+      }
+      const botMember = interaction.guild.members.me || await interaction.guild.members.fetchMe().catch(() => null);
+      if (!botMember?.permissions.has(PermissionFlagsBits.ManageRoles) || !role.editable ||
+          botMember.roles.highest.comparePositionTo(role) <= 0) {
+        return interaction.reply({ content: "No puedo gestionar el rol " + roleLabel + ". Revisa Gestionar roles y la jerarquía del bot.", ephemeral: true });
+      }
+
+      const gd = getGuild(interaction.guild.id);
+      if (!gd.premiumKeys || typeof gd.premiumKeys !== "object" || Array.isArray(gd.premiumKeys)) gd.premiumKeys = {};
+      const now = Date.now();
+      const generatedCodes = [];
+      for (let i = 0; i < quantity; i++) {
+        let code;
+        let keyHash;
+        do {
+          const random = crypto.randomBytes(12).toString("hex").toUpperCase();
+          code = "NOXXA-" + random.slice(0, 8) + "-" + random.slice(8, 16) + "-" + random.slice(16, 24);
+          keyHash = crypto.createHash("sha256").update(code).digest("hex");
+        } while (gd.premiumKeys[keyHash]);
+        gd.premiumKeys[keyHash] = {
+          createdAt: now,
+          createdBy: interaction.user.id,
+          redeemedAt: 0,
+          redeemedBy: null,
+          roleId,
+          tier,
+          durationMs
+        };
+        generatedCodes.push(code);
+      }
+      db.guilds[interaction.guild.id] = gd;
+      saveDB("custom NOXXA keys generated");
+      recordActivity(
+        interaction.guild.id,
+        "Claves NOXXA generadas",
+        activityUser(interaction.user),
+        quantity + " clave(s) para " + roleLabel + " por " + formatKeyDuration(durationMs) + "."
+      );
+
+      const embed = new EmbedBuilder()
+        .setColor(tier === "basic" ? COLOR.blue : COLOR.purple)
+        .setTitle("✅ Claves NOXXA creadas")
+        .setDescription(
+          "**Rango:** <@&" + roleId + "> (" + roleLabel + ")\\n" +
+          "**Tiempo que recibe cada persona:** **" + formatKeyDuration(durationMs) + "**\\n" +
+          "**Uso:** una vez por clave.\\n\\n" +
+          generatedCodes.map((code, index) => "**" + (index + 1) + ".** " + code).join("\\n") +
+          "\\n\\nCopia las claves antes de cerrar este mensaje."
+        )
+        .setFooter({ text: "NOXXA • Panel privado de claves" })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+
     if (interaction.isStringSelectMenu() && interaction.customId === "ticket_create") {
       if (!interaction.guild) return;
       await interaction.deferReply({ ephemeral: true });
@@ -2291,6 +2466,18 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({ embeds: [embed] });
     }
 
+    if (name === "key-control") {
+      if (!KEY_GENERATE_ALLOWED_USER_IDS.includes(interaction.user.id)) {
+        return interaction.reply({ content: "⛔ Solo los dos usuarios autorizados pueden abrir este panel.", ephemeral: true });
+      }
+      KEY_CONTROL_SESSIONS.set(interaction.user.id, { tier: "premium", updatedAt: Date.now() });
+      return interaction.reply({
+        embeds: [buildKeyControlEmbed("premium")],
+        components: buildKeyControlComponents("premium"),
+        ephemeral: true
+      });
+    }
+
     if (name === "key-generate") {
       if (!KEY_GENERATE_ALLOWED_USER_IDS.includes(interaction.user.id)) {
         return interaction.reply({ content: "No tienes permiso para generar claves Premium.", ephemeral: true });
@@ -2314,7 +2501,10 @@ client.on("interactionCreate", async interaction => {
           createdAt: now,
           createdBy: interaction.user.id,
           redeemedAt: 0,
-          redeemedBy: null
+          redeemedBy: null,
+          roleId: PREMIUM_ROLE_ID,
+          tier: "premium",
+          durationMs: KEY_PREMIUM_DURATION_MS
         };
         generatedCodes.push(code);
       }
