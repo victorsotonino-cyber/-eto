@@ -218,7 +218,7 @@ function normalizeGuild(input) {
     const expiresAt = Number(record?.expiresAt);
     if (!record || typeof record !== "object" || !Number.isFinite(expiresAt) || expiresAt <= 0) continue;
 
-    const legacyKey = /^\\d{17,20}$/.test(timerKey);
+    const legacyKey = /^\d{17,20}$/.test(timerKey);
     const keyParts = timerKey.split(":");
     const userId = sanitizeSnowflake(legacyKey ? timerKey : keyParts[0]);
     const roleId = sanitizeSnowflake(record.roleId) ||
@@ -1730,7 +1730,7 @@ async function processExpiredPremiumRoles() {
     for (const [timerKey, record] of entries) {
       // Acepta también claves antiguas: userId para Premium y userId:roleId para ambos.
       const parts = timerKey.split(":");
-      const legacyKey = /^\\d{17,20}$/.test(timerKey);
+      const legacyKey = /^\d{17,20}$/.test(timerKey);
       const userId = sanitizeSnowflake(legacyKey ? timerKey : parts[0]);
       const roleId = sanitizeSnowflake(record?.roleId) ||
         sanitizeSnowflake(legacyKey ? PREMIUM_ROLE_ID : parts[1]);
