@@ -2287,7 +2287,7 @@ client.on("interactionCreate", async interaction => {
         let keyHash;
         do {
           const random = crypto.randomBytes(12).toString("hex").toUpperCase();
-          code = "NEXUS-" + random.slice(0, 8) + "-" + random.slice(8, 16) + "-" + random.slice(16, 24);
+          code = "NOXXA-" + random.slice(0, 8) + "-" + random.slice(8, 16) + "-" + random.slice(16, 24);
           keyHash = crypto.createHash("sha256").update(code).digest("hex");
         } while (gd.premiumKeys[keyHash]);
 
@@ -2306,15 +2306,15 @@ client.on("interactionCreate", async interaction => {
 
       const embed = new EmbedBuilder()
         .setColor(COLOR.purple)
-        .setTitle("🔑 5 claves Premium generadas")
+        .setTitle("🔑 5 claves Premium NOXXA generadas")
         .setDescription(
           "Cada clave concede **2 horas de Premium** y solo se puede canjear una vez.\n" +
           "Guarda y comparte estas claves de forma privada. No se mostrarán de nuevo.\n\n" +
           generatedCodes.map((code, index) => "**" + (index + 1) + ".** \`" + code + "\`").join("\n")
         )
-        .setFooter({ text: "Nexus • Cada clave es de un solo uso" })
+        .setFooter({ text: "NOXXA • Cada clave es de un solo uso" })
         .setTimestamp();
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+      return interaction.reply({ embeds: [embed] });
     }
 
     if (name === "key-reclaim") {
@@ -2325,7 +2325,7 @@ client.on("interactionCreate", async interaction => {
       }
 
       const inputCode = String(interaction.options.getString("key", true) || "").trim().toUpperCase();
-      if (!/^NEXUS-[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}$/.test(inputCode)) {
+      if (!/^NOXXA-[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}$/.test(inputCode)) {
         return interaction.reply({ content: "La clave no tiene un formato válido. Revisa que la hayas copiado completa.", ephemeral: true });
       }
 
