@@ -1475,6 +1475,20 @@ const commands = [
       .setRequired(true)),
 
   new SlashCommandBuilder()
+    .setName("role-bassic")
+    .setDescription("Da el rol Bassic por un tiempo limitado y lo retira al vencer.")
+    .addUserOption(o => o
+      .setName("usuario")
+      .setDescription("Usuario que recibirá Bassic.")
+      .setRequired(true))
+    .addStringOption(o => o
+      .setName("tiempo")
+      .setDescription("Duración: 30m, 2h, 7d o 2w (máximo 365d).")
+      .setMinLength(2)
+      .setMaxLength(6)
+      .setRequired(true)),
+
+  new SlashCommandBuilder()
     .setName("vouch")
     .setDescription("Añade un vouch a un usuario.")
     .addUserOption(o => o.setName("usuario").setDescription("Usuario que recibe el vouch.").setRequired(true))
@@ -1719,13 +1733,26 @@ async function processExpiredPremiumRoles() {
           continue;
         }
 
-        if (member.roles.cache.has(PREMIUM_ROLE_ID)) {
-          await member.roles.remove(role, "Premium temporal vencido automáticamente");
+        const roleId = String(gd.premiumRoleTimers[userId]?.roleId || PREMIUM_ROLE_ID);
+        const expiringRole = roleId === PREMIUM_ROLE_ID
+          ? role
+          : await guild.roles.fetch(roleId).catch(error => {
+              if (Number(error?.code) === 10011) return null;
+              throw error;
+            });
+        if (!expiringRole) {
+          console.error("Nexus: no existe el rol temporal " + roleId + "; se limpiará el vencimiento de " + userId + ".");
+          delete gd.premiumRoleTimers[userId];
+          changed = true;
+          continue;
+        }
+        if (member.roles.cache.has(roleId)) {
+          await member.roles.remove(expiringRole, "Rol temporal vencido automáticamente");
         }
         delete gd.premiumRoleTimers[userId];
         changed = true;
-        recordActivity(guild.id, "Premium vencido", activityUser(member.user), "Se retiró <@&" + PREMIUM_ROLE_ID + "> automáticamente");
-        console.log("Nexus: rol Premium retirado por vencimiento a " + userId + ".");
+        recordActivity(guild.id, "Rol temporal vencido", activityUser(member.user), "Se retiró <@&" + roleId + "> automáticamente");
+        console.log("Nexus: rol temporal " + roleId + " retirado por vencimiento a " + userId + ".");
       } catch (error) {
         // Keep the record when Discord temporarily fails so the next sweep retries.
         console.error("Nexus: no pude retirar Premium vencido a " + userId + "; lo volveré a intentar:", error.message);
@@ -2216,6 +2243,80 @@ client.on("interactionCreate", async interaction => {
           "**Asignado por:** <@" + interaction.user.id + ">"
         )
         .setFooter({ text: "Nexus • Premium temporal" })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed], ephemeral: false });
+    }
+
+    if (name === "role-bassic") {
+      if (!isStaff(interaction.member)) {
+        return interaction.reply({ content: "No tienes permisos de Staff para gestionar el rol Bassic.", ephemeral: true });
+      }
+
+      const targetUser = interaction.options.getUser("usuario", true);
+      const durationInput = interaction.options.getString("tiempo", true);
+      const durationMs = parseDurationMs(durationInput);
+      if (!durationMs) {
+        return interaction.reply({
+          content: "Duración inválida. Usa formatos como `30m`, `2h`, `7d` o `2w`. El máximo es 365 días.",
+          ephemeral: true
+        });
+      }
+      if (targetUser.bot) {
+        return interaction.reply({ content: "No puedes asignar Bassic temporal a un bot.", ephemeral: true });
+      }
+
+      const roleId = "1554248808194642044";
+      const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+      if (!role) {
+        return interaction.reply({ content: "No encontré el rol Bassic configurado (<@&" + roleId + ">).", ephemeral: true });
+      }
+
+      const botMember = interaction.guild.members.me || await interaction.guild.members.fetchMe().catch(() => null);
+      if (!botMember?.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        return interaction.reply({ content: "Necesito el permiso **Gestionar roles** para asignar Bassic.", ephemeral: true });
+      }
+      if (!role.editable || botMember.roles.highest.comparePositionTo(role) <= 0) {
+        return interaction.reply({ content: "No puedo gestionar ese rol: coloca mi rol más arriba que Bassic en Ajustes del servidor → Roles.", ephemeral: true });
+      }
+
+      const targetMember = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+      if (!targetMember) {
+        return interaction.reply({ content: "No pude encontrar a ese miembro dentro del servidor.", ephemeral: true });
+      }
+
+      const now = Date.now();
+      const expiresAt = now + durationMs;
+      try {
+        await targetMember.roles.add(role, "Bassic temporal asignado por " + interaction.user.tag + " durante " + durationInput);
+      } catch (error) {
+        console.error("Nexus: no pude asignar Bassic temporal:", error);
+        return interaction.reply({ content: "Discord rechazó la asignación. Verifica los permisos y la posición del rol del bot.", ephemeral: true });
+      }
+
+      const gd = getGuild(interaction.guild.id);
+      if (!gd.premiumRoleTimers || typeof gd.premiumRoleTimers !== "object") gd.premiumRoleTimers = {};
+      gd.premiumRoleTimers[targetUser.id + ":" + roleId] = {
+        roleId,
+        expiresAt,
+        grantedBy: interaction.user.id,
+        grantedAt: now
+      };
+      db.guilds[interaction.guild.id] = gd;
+      saveDB("Bassic role grant");
+      recordActivity(interaction.guild.id, "Bassic temporal asignado", activityUser(targetUser), "Duración: " + formatDuration(durationMs) + "; vence <t:" + Math.floor(expiresAt / 1000) + ":F>");
+
+      const embed = new EmbedBuilder()
+        .setColor(COLOR.purple)
+        .setTitle("Bassic temporal asignado")
+        .setThumbnail(targetUser.displayAvatarURL({ size: 128 }))
+        .setDescription(
+          "**Usuario:** <@" + targetUser.id + ">\n" +
+          "**Rango:** <@&" + roleId + ">\n" +
+          "**Duración:** " + formatDuration(durationMs) + "\n" +
+          "**Termina:** <t:" + Math.floor(expiresAt / 1000) + ":F> (<t:" + Math.floor(expiresAt / 1000) + ":R>)\n" +
+          "**Asignado por:** <@" + interaction.user.id + ">"
+        )
+        .setFooter({ text: "Nexus • Bassic temporal" })
         .setTimestamp();
       return interaction.reply({ embeds: [embed], ephemeral: false });
     }
