@@ -45,6 +45,7 @@ const DASHBOARD_OWNERS = [
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const STAFF_TEAM_ROLE_ID = "1557203534133330010";
+const PREMIUM_ROLE_ID = "1554248808194642043";
 const REWARD_ROLE_ID = "1554248808194642048";
 const FULL_ACCESS_ROLE_ID = "1554252558359470182";
 const POST_STAFF_NOTIFY_ROLE_IDS = ["1554708798499725393", "1554708987700715531"];
@@ -185,6 +186,7 @@ function defaultGuild() {
     vouches: {},
     invites: {},
     inviteMembers: {},
+    premiumRoleTimers: {},
     staffQuestions: DEFAULT_STAFF_QUESTIONS.slice(),
     alterQuestions: DEFAULT_ALTER_QUESTIONS.slice(),
     activity: [],
@@ -208,6 +210,19 @@ function normalizeGuild(input) {
   g.vouches = g.vouches && typeof g.vouches === "object" && !Array.isArray(g.vouches) ? g.vouches : {};
   g.invites = g.invites && typeof g.invites === "object" && !Array.isArray(g.invites) ? g.invites : {};
   g.inviteMembers = g.inviteMembers && typeof g.inviteMembers === "object" && !Array.isArray(g.inviteMembers) ? g.inviteMembers : {};
+  g.premiumRoleTimers = g.premiumRoleTimers && typeof g.premiumRoleTimers === "object" && !Array.isArray(g.premiumRoleTimers) ? g.premiumRoleTimers : {};
+  for (const [userId, record] of Object.entries(g.premiumRoleTimers)) {
+    const expiresAt = Number(record?.expiresAt);
+    if (!/^\\d{17,20}$/.test(userId) || !record || typeof record !== "object" || !Number.isFinite(expiresAt) || expiresAt <= 0) {
+      delete g.premiumRoleTimers[userId];
+      continue;
+    }
+    g.premiumRoleTimers[userId] = {
+      expiresAt,
+      grantedBy: sanitizeSnowflake(record.grantedBy),
+      grantedAt: Math.max(0, Number(record.grantedAt) || 0)
+    };
+  }
   for (const [inviterId, stats] of Object.entries(g.invites)) {
     if (!/^\d{17,20}$/.test(inviterId) || !stats || typeof stats !== "object") {
       delete g.invites[inviterId];
@@ -1446,6 +1461,20 @@ const commands = [
     .setDescription("Muestra el top 10 de invitaciones del servidor."),
 
   new SlashCommandBuilder()
+    .setName("role-premium")
+    .setDescription("Da el rol Premium por un tiempo limitado y lo retira al vencer.")
+    .addUserOption(o => o
+      .setName("usuario")
+      .setDescription("Usuario que recibirá Premium.")
+      .setRequired(true))
+    .addStringOption(o => o
+      .setName("tiempo")
+      .setDescription("Duración: 30m, 2h, 7d o 2w (máximo 365d).")
+      .setMinLength(2)
+      .setMaxLength(6)
+      .setRequired(true)),
+
+  new SlashCommandBuilder()
     .setName("vouch")
     .setDescription("Añade un vouch a un usuario.")
     .addUserOption(o => o.setName("usuario").setDescription("Usuario que recibe el vouch.").setRequired(true))
@@ -1613,6 +1642,85 @@ function trackInviteLeave(member) {
   }
   db.guilds[member.guild.id] = gd;
   scheduleSaveDB("invite leave");
+}
+
+function parseDurationMs(value) {
+  const match = String(value || "").trim().match(/^(\\d{1,3})(m|h|d|w)$/i);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  const unit = match[2].toLowerCase();
+  const multiplier = ({ m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 })[unit];
+  if (!Number.isInteger(amount) || amount < 1 || !multiplier) return null;
+  const duration = amount * multiplier;
+  if (!Number.isSafeInteger(duration) || duration < 60_000 || duration > 365 * 86_400_000) return null;
+  return duration;
+}
+
+function formatDuration(ms) {
+  let remaining = Math.max(0, Math.floor(ms / 1000));
+  const units = [
+    ["año", 365 * 86400], ["semana", 7 * 86400], ["día", 86400],
+    ["hora", 3600], ["minuto", 60], ["segundo", 1]
+  ];
+  const parts = [];
+  for (const [label, seconds] of units) {
+    const count = Math.floor(remaining / seconds);
+    if (!count) continue;
+    remaining %= seconds;
+    const plural = label === "año" ? "años" : label === "día" ? "días" : label === "hora" ? "horas" :
+      label === "minuto" ? "minutos" : label === "segundo" ? "segundos" : "semanas";
+    parts.push(count + " " + (count === 1 ? label : plural));
+    if (parts.length === 2) break;
+  }
+  return parts.join(" y ") || "menos de un segundo";
+}
+
+async function processExpiredPremiumRoles() {
+  if (!client.isReady()) return;
+  const guild = client.guilds.cache.get(GUILD_ID);
+  if (!guild) return;
+  const gd = getGuild(GUILD_ID);
+  const entries = Object.entries(gd.premiumRoleTimers || {});
+  if (!entries.length) return;
+
+  const now = Date.now();
+  let changed = false;
+  for (const [userId, record] of entries) {
+    if (!Number.isFinite(Number(record?.expiresAt)) || Number(record.expiresAt) > now) continue;
+    try {
+      const member = await guild.members.fetch(userId).catch(error => {
+        if (Number(error?.code) === 10007) return null;
+        throw error;
+      });
+      if (!member) {
+        delete gd.premiumRoleTimers[userId];
+        changed = true;
+        continue;
+      }
+
+      const role = guild.roles.cache.get(PREMIUM_ROLE_ID);
+      if (!role) {
+        console.error("Nexus: no existe el rol Premium " + PREMIUM_ROLE_ID + "; se limpia el temporizador de " + userId + ".");
+        delete gd.premiumRoleTimers[userId];
+        changed = true;
+        continue;
+      }
+
+      if (member.roles.cache.has(PREMIUM_ROLE_ID)) {
+        await member.roles.remove(role, "Premium temporal vencido automáticamente");
+      }
+      delete gd.premiumRoleTimers[userId];
+      changed = true;
+      recordActivity(guild.id, "Premium vencido", activityUser(member.user), "Se retiró <@&" + PREMIUM_ROLE_ID + "> automáticamente");
+      console.log("Nexus: rol Premium retirado por vencimiento a " + userId + ".");
+    } catch (error) {
+      console.error("Nexus: no pude retirar Premium vencido a " + userId + "; lo volveré a intentar:", error.message);
+    }
+  }
+  if (changed) {
+    db.guilds[GUILD_ID] = gd;
+    saveDB("premium expiry sweep");
+  }
 }
 
 async function registerCommands() {
@@ -1830,6 +1938,7 @@ client.once("ready", async () => {
     console.error("Nexus: error importando el pack de emojis:", error.message);
   }
 
+  await processExpiredPremiumRoles().catch(error => console.error("Nexus: error comprobando Premium vencidos:", error));
   await syncPanelConfig();
   await pushPanelState();
 
@@ -2019,6 +2128,77 @@ client.on("interactionCreate", async interaction => {
         .setFooter({ text: "Nexus Invite Tracker" })
         .setTimestamp();
       return interaction.reply({ embeds: [embed] });
+    }
+
+    if (name === "role-premium") {
+      if (!isStaff(interaction.member)) {
+        return interaction.reply({ content: "No tienes permisos de Staff para gestionar el rol Premium.", ephemeral: true });
+      }
+
+      const targetUser = interaction.options.getUser("usuario", true);
+      const durationInput = interaction.options.getString("tiempo", true);
+      const durationMs = parseDurationMs(durationInput);
+      if (!durationMs) {
+        return interaction.reply({
+          content: "Duración inválida. Usa formatos como `30m`, `2h`, `7d` o `2w`. El máximo es 365 días.",
+          ephemeral: true
+        });
+      }
+      if (targetUser.bot) {
+        return interaction.reply({ content: "No puedes asignar Premium temporal a un bot.", ephemeral: true });
+      }
+
+      const role = await interaction.guild.roles.fetch(PREMIUM_ROLE_ID).catch(() => null);
+      if (!role) {
+        return interaction.reply({ content: "No encontré el rol Premium configurado (<@&" + PREMIUM_ROLE_ID + ">).", ephemeral: true });
+      }
+
+      const botMember = interaction.guild.members.me || await interaction.guild.members.fetchMe().catch(() => null);
+      if (!botMember?.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        return interaction.reply({ content: "Necesito el permiso **Gestionar roles** para asignar Premium.", ephemeral: true });
+      }
+      if (!role.editable || botMember.roles.highest.comparePositionTo(role) <= 0) {
+        return interaction.reply({ content: "No puedo gestionar ese rol: coloca mi rol más arriba que Premium en Ajustes del servidor → Roles.", ephemeral: true });
+      }
+
+      const targetMember = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+      if (!targetMember) {
+        return interaction.reply({ content: "No pude encontrar a ese miembro dentro del servidor.", ephemeral: true });
+      }
+
+      const now = Date.now();
+      const expiresAt = now + durationMs;
+      try {
+        await targetMember.roles.add(role, "Premium temporal asignado por " + interaction.user.tag + " durante " + durationInput);
+      } catch (error) {
+        console.error("Nexus: no pude asignar Premium temporal:", error);
+        return interaction.reply({ content: "Discord rechazó la asignación. Verifica los permisos y la posición del rol del bot.", ephemeral: true });
+      }
+
+      const gd = getGuild(interaction.guild.id);
+      gd.premiumRoleTimers[targetUser.id] = {
+        expiresAt,
+        grantedBy: interaction.user.id,
+        grantedAt: now
+      };
+      db.guilds[interaction.guild.id] = gd;
+      saveDB("premium role grant");
+      recordActivity(interaction.guild.id, "Premium temporal asignado", activityUser(targetUser), "Duración: " + formatDuration(durationMs) + "; vence <t:" + Math.floor(expiresAt / 1000) + ":F>");
+
+      const embed = new EmbedBuilder()
+        .setColor(COLOR.purple)
+        .setTitle("Premium temporal asignado")
+        .setThumbnail(targetUser.displayAvatarURL({ size: 128 }))
+        .setDescription(
+          "**Usuario:** <@" + targetUser.id + ">\n" +
+          "**Rango:** <@&" + PREMIUM_ROLE_ID + ">\n" +
+          "**Duración:** " + formatDuration(durationMs) + "\n" +
+          "**Termina:** <t:" + Math.floor(expiresAt / 1000) + ":F> (<t:" + Math.floor(expiresAt / 1000) + ":R>)\n" +
+          "**Asignado por:** <@" + interaction.user.id + ">"
+        )
+        .setFooter({ text: "Nexus • Premium temporal" })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed], ephemeral: false });
     }
 
     if (name === "vouch") {
@@ -2998,6 +3178,7 @@ async function shutdown(signal) {
   if (globalThis.__panelPushTimer) clearInterval(globalThis.__panelPushTimer);
   if (flushDBTimer) clearInterval(flushDBTimer);
   if (rateCleanupTimer) clearInterval(rateCleanupTimer);
+  if (premiumExpiryTimer) clearInterval(premiumExpiryTimer);
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 5000).unref();
 }
@@ -3015,6 +3196,11 @@ process.on("uncaughtException", error => {
 
 const rateCleanupTimer = setInterval(() => cleanupRateBuckets(), 60_000);
 rateCleanupTimer.unref?.();
+
+const premiumExpiryTimer = setInterval(() => {
+  processExpiredPremiumRoles().catch(error => console.error("Nexus: error comprobando Premium vencidos:", error));
+}, 30_000);
+premiumExpiryTimer.unref?.();
 
 const RUN_BOT = process.env.RUN_BOT !== "false";
 if (RUN_BOT) startBot();
