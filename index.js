@@ -17,7 +17,10 @@ const {
   StringSelectMenuBuilder,
   ButtonBuilder,
   ButtonStyle,
-  AttachmentBuilder
+  AttachmentBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle
 } = require("discord.js");
 
 const TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN;
@@ -51,7 +54,9 @@ const FULL_ACCESS_ROLE_ID = "1554252558359470182";
 const POST_STAFF_NOTIFY_ROLE_IDS = ["1554708798499725393", "1554708987700715531"];
 const KEY_GENERATE_ALLOWED_USER_IDS = ["1498536522624798730", "1171135786964484136"];
 const KEY_RECLAIM_ROLE_ID = "1554248808194642042";
+const BASIC_ROLE_ID = "1554248808194642044";
 const KEY_PREMIUM_DURATION_MS = 2 * 60 * 60 * 1000;
+const KEY_CONTROL_SESSIONS = new Map();
 
 const DEFAULT_STAFF_QUESTIONS = [
   "👤 Confirma tu nombre y usuario de Discord (tag o ID).",
@@ -253,11 +258,21 @@ function normalizeGuild(input) {
     if (!/^[a-f0-9]{64}$/i.test(keyHash) || !record || typeof record !== "object") continue;
     const createdAt = Number(record.createdAt);
     if (!Number.isFinite(createdAt) || createdAt <= 0) continue;
+    const storedRoleId = sanitizeSnowflake(record.roleId);
+    const roleId = storedRoleId === BASIC_ROLE_ID ? BASIC_ROLE_ID : PREMIUM_ROLE_ID;
+    const storedDuration = Number(record.durationMs);
+    const durationMs = Number.isSafeInteger(storedDuration) &&
+      storedDuration >= 60_000 && storedDuration <= 365 * 86_400_000
+      ? storedDuration
+      : KEY_PREMIUM_DURATION_MS;
     normalizedPremiumKeys[keyHash.toLowerCase()] = {
       createdAt,
       createdBy: sanitizeSnowflake(record.createdBy),
       redeemedAt: Math.max(0, Number(record.redeemedAt) || 0),
-      redeemedBy: sanitizeSnowflake(record.redeemedBy)
+      redeemedBy: sanitizeSnowflake(record.redeemedBy),
+      roleId,
+      tier: roleId === BASIC_ROLE_ID ? "basic" : "premium",
+      durationMs
     };
   }
   g.premiumKeys = normalizedPremiumKeys;
@@ -1529,6 +1544,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName("key-generate")
     .setDescription("Genera 5 claves Premium de un solo uso, válidas por 2 horas cada una."),
+
+  new SlashCommandBuilder()
+    .setName("key-control")
+    .setDescription("Abre el panel privado para crear claves Básico o Premium con duración personalizada."),
 
   new SlashCommandBuilder()
     .setName("key-reclaim")
