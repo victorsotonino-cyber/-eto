@@ -1708,18 +1708,6 @@ async function processExpiredPremiumRoles() {
     if (!expiredEntries.length) return;
 
     // Fetch the configured role once per sweep, not once per expired user.
-    const role = await guild.roles.fetch(PREMIUM_ROLE_ID).catch(error => {
-      if (Number(error?.code) === 10011) return null;
-      throw error;
-    });
-    if (!role) {
-      console.error("Nexus: no existe el rol Premium " + PREMIUM_ROLE_ID + "; se limpiarán los vencimientos pendientes.");
-      for (const [userId] of expiredEntries) delete gd.premiumRoleTimers[userId];
-      db.guilds[GUILD_ID] = gd;
-      saveDB("premium role missing");
-      return;
-    }
-
     let changed = false;
     for (const [userId] of expiredEntries) {
       try {
@@ -1734,16 +1722,14 @@ async function processExpiredPremiumRoles() {
         }
 
         const roleId = String(gd.premiumRoleTimers[userId]?.roleId || PREMIUM_ROLE_ID);
-        const expiringRole = roleId === PREMIUM_ROLE_ID
-          ? role
-          : await guild.roles.fetch(roleId).catch(error => {
-              if (Number(error?.code) === 10011) return null;
-              throw error;
-            });
+        const expiringRole = await guild.roles.fetch(roleId).catch(error => {
+          if (Number(error?.code) === 10011) return null;
+          throw error;
+        });
         if (!expiringRole) {
-          console.error("Nexus: no existe el rol temporal " + roleId + "; se limpiará el vencimiento de " + userId + ".");
-          delete gd.premiumRoleTimers[userId];
-          changed = true;
+          // Do not discard the expiry record on a missing role or temporary API issue.
+          // Keep it so the timer can retry after the role/configuration is fixed.
+          console.error("Nexus: no existe el rol temporal " + roleId + "; se conserva el vencimiento de " + userId + " para reintentar.");
           continue;
         }
         if (member.roles.cache.has(roleId)) {
