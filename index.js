@@ -2549,21 +2549,28 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({ content: "Esta clave ya fue canjeada y no se puede volver a usar.", ephemeral: true });
       }
 
-      const role = await interaction.guild.roles.fetch(PREMIUM_ROLE_ID).catch(() => null);
-      if (!role) return interaction.reply({ content: "No encontré el rol Premium configurado.", ephemeral: true });
+      const grantedRoleId = sanitizeSnowflake(keyRecord.roleId) === BASIC_ROLE_ID ? BASIC_ROLE_ID : PREMIUM_ROLE_ID;
+      const grantedRoleLabel = grantedRoleId === BASIC_ROLE_ID ? "Básico" : "Premium";
+      const storedDurationMs = Number(keyRecord.durationMs);
+      const durationMs = Number.isSafeInteger(storedDurationMs) &&
+        storedDurationMs >= 60_000 && storedDurationMs <= 365 * 86_400_000
+        ? storedDurationMs
+        : KEY_PREMIUM_DURATION_MS;
+      const role = await interaction.guild.roles.fetch(grantedRoleId).catch(() => null);
+      if (!role) return interaction.reply({ content: "No encontré el rol " + grantedRoleLabel + " configurado (<@&" + grantedRoleId + ">).", ephemeral: true });
 
       const botMember = interaction.guild.members.me || await interaction.guild.members.fetchMe().catch(() => null);
       if (!botMember?.permissions.has(PermissionFlagsBits.ManageRoles) || !role.editable ||
           botMember.roles.highest.comparePositionTo(role) <= 0) {
-        return interaction.reply({ content: "No puedo gestionar el rol Premium. Revisa Gestionar roles y la jerarquía del bot.", ephemeral: true });
+        return interaction.reply({ content: "No puedo gestionar el rol " + grantedRoleLabel + ". Revisa Gestionar roles y la jerarquía del bot.", ephemeral: true });
       }
 
       const now = Date.now();
-      const timerKey = redeemer.id + ":" + PREMIUM_ROLE_ID;
+      const timerKey = redeemer.id + ":" + grantedRoleId;
       const oldTimer = gd.premiumRoleTimers?.[timerKey] ||
-        gd.premiumRoleTimers?.[redeemer.id] || null;
+        (grantedRoleId === PREMIUM_ROLE_ID ? gd.premiumRoleTimers?.[redeemer.id] : null);
       const oldExpiresAt = Number(oldTimer?.expiresAt);
-      const expiresAt = Math.max(now, Number.isFinite(oldExpiresAt) ? oldExpiresAt : now) + KEY_PREMIUM_DURATION_MS;
+      const expiresAt = Math.max(now, Number.isFinite(oldExpiresAt) ? oldExpiresAt : now) + durationMs;
 
       // Reserve the key before awaiting Discord role changes, preventing concurrent double-claims.
       keyRecord.redeemedAt = now;
@@ -2574,7 +2581,7 @@ client.on("interactionCreate", async interaction => {
 
       try {
         if (!redeemer.roles.cache.has(PREMIUM_ROLE_ID)) {
-          await redeemer.roles.add(role, "Clave Premium canjeada por " + interaction.user.tag);
+          await redeemer.roles.add(role, "Clave NOXXA de " + grantedRoleLabel + " canjeada por " + interaction.user.tag);
         }
       } catch (error) {
         keyRecord.redeemedAt = 0;
@@ -2595,19 +2602,19 @@ client.on("interactionCreate", async interaction => {
       };
       db.guilds[interaction.guild.id] = gd;
       saveDB("premium key redeemed");
-      recordActivity(interaction.guild.id, "Clave Premium canjeada", activityUser(interaction.user), "Premium concedido por 2 horas; vence <t:" + Math.floor(expiresAt / 1000) + ":F>.");
+      recordActivity(interaction.guild.id, "Clave NOXXA canjeada", activityUser(interaction.user), grantedRoleLabel + " concedido por " + formatKeyDuration(durationMs) + "; vence <t:" + Math.floor(expiresAt / 1000) + ":F>.");
 
       const embed = new EmbedBuilder()
         .setColor(COLOR.green)
         .setTitle("✅ Clave canjeada correctamente")
         .setDescription(
           "**Usuario:** " + interaction.user + "\n" +
-          "**Rango recibido:** <@&" + PREMIUM_ROLE_ID + ">\n" +
-          "**Tiempo añadido:** **2 horas**\n" +
+          "**Rango recibido:** <@&" + grantedRoleId + "> (" + grantedRoleLabel + ")\n" +
+          "**Tiempo añadido:** **" + formatKeyDuration(durationMs) + "**\n" +
           "**Vence:** <t:" + Math.floor(expiresAt / 1000) + ":F> (<t:" + Math.floor(expiresAt / 1000) + ":R>)" +
-          (oldExpiresAt > now ? "\n\nTu tiempo Premium anterior se conservó y se añadieron las 2 horas." : "")
+          (oldExpiresAt > now ? "\n\nTu tiempo anterior de este rango se conservó y se añadió la nueva duración." : "")
         )
-        .setFooter({ text: "Nexus • Clave de un solo uso" })
+        .setFooter({ text: "NOXXA • Clave de un solo uso" })
         .setTimestamp();
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
