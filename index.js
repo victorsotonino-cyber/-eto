@@ -1675,54 +1675,70 @@ function formatDuration(ms) {
   return parts.join(" y ") || "menos de un segundo";
 }
 
+let premiumExpirySweepRunning = false;
+
 async function processExpiredPremiumRoles() {
-  if (!client.isReady()) return;
-  const guild = client.guilds.cache.get(GUILD_ID);
-  if (!guild) return;
-  const gd = getGuild(GUILD_ID);
-  const entries = Object.entries(gd.premiumRoleTimers || {});
-  if (!entries.length) return;
+  if (!client.isReady() || premiumExpirySweepRunning) return;
+  premiumExpirySweepRunning = true;
+  try {
+    const guild = client.guilds.cache.get(GUILD_ID);
+    if (!guild) return;
+    const gd = getGuild(GUILD_ID);
+    const entries = Object.entries(gd.premiumRoleTimers || {});
+    if (!entries.length) return;
 
-  const now = Date.now();
-  let changed = false;
-  for (const [userId, record] of entries) {
-    if (!Number.isFinite(Number(record?.expiresAt)) || Number(record.expiresAt) > now) continue;
-    try {
-      const member = await guild.members.fetch(userId).catch(error => {
-        if (Number(error?.code) === 10007) return null;
-        throw error;
-      });
-      if (!member) {
-        delete gd.premiumRoleTimers[userId];
-        changed = true;
-        continue;
-      }
+    const now = Date.now();
+    const expiredEntries = entries.filter(([, record]) =>
+      Number.isFinite(Number(record?.expiresAt)) && Number(record.expiresAt) <= now
+    );
+    if (!expiredEntries.length) return;
 
-      const role = await guild.roles.fetch(PREMIUM_ROLE_ID).catch(error => {
-        if (Number(error?.code) === 10011) return null;
-        throw error;
-      });
-      if (!role) {
-        console.error("Nexus: no existe el rol Premium " + PREMIUM_ROLE_ID + "; se limpia el temporizador de " + userId + ".");
-        delete gd.premiumRoleTimers[userId];
-        changed = true;
-        continue;
-      }
-
-      if (member.roles.cache.has(PREMIUM_ROLE_ID)) {
-        await member.roles.remove(role, "Premium temporal vencido automáticamente");
-      }
-      delete gd.premiumRoleTimers[userId];
-      changed = true;
-      recordActivity(guild.id, "Premium vencido", activityUser(member.user), "Se retiró <@&" + PREMIUM_ROLE_ID + "> automáticamente");
-      console.log("Nexus: rol Premium retirado por vencimiento a " + userId + ".");
-    } catch (error) {
-      console.error("Nexus: no pude retirar Premium vencido a " + userId + "; lo volveré a intentar:", error.message);
+    // Fetch the configured role once per sweep, not once per expired user.
+    const role = await guild.roles.fetch(PREMIUM_ROLE_ID).catch(error => {
+      if (Number(error?.code) === 10011) return null;
+      throw error;
+    });
+    if (!role) {
+      console.error("Nexus: no existe el rol Premium " + PREMIUM_ROLE_ID + "; se limpiarán los vencimientos pendientes.");
+      for (const [userId] of expiredEntries) delete gd.premiumRoleTimers[userId];
+      db.guilds[GUILD_ID] = gd;
+      saveDB("premium role missing");
+      return;
     }
-  }
-  if (changed) {
-    db.guilds[GUILD_ID] = gd;
-    saveDB("premium expiry sweep");
+
+    let changed = false;
+    for (const [userId] of expiredEntries) {
+      try {
+        const member = await guild.members.fetch(userId).catch(error => {
+          if (Number(error?.code) === 10007) return null;
+          throw error;
+        });
+        if (!member) {
+          delete gd.premiumRoleTimers[userId];
+          changed = true;
+          continue;
+        }
+
+        if (member.roles.cache.has(PREMIUM_ROLE_ID)) {
+          await member.roles.remove(role, "Premium temporal vencido automáticamente");
+        }
+        delete gd.premiumRoleTimers[userId];
+        changed = true;
+        recordActivity(guild.id, "Premium vencido", activityUser(member.user), "Se retiró <@&" + PREMIUM_ROLE_ID + "> automáticamente");
+        console.log("Nexus: rol Premium retirado por vencimiento a " + userId + ".");
+      } catch (error) {
+        // Keep the record when Discord temporarily fails so the next sweep retries.
+        console.error("Nexus: no pude retirar Premium vencido a " + userId + "; lo volveré a intentar:", error.message);
+      }
+    }
+    if (changed) {
+      db.guilds[GUILD_ID] = gd;
+      saveDB("premium expiry sweep");
+    }
+  } catch (error) {
+    console.error("Nexus: fallo general revisando vencimientos Premium; se reintentará:", error.message);
+  } finally {
+    premiumExpirySweepRunning = false;
   }
 }
 
