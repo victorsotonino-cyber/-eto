@@ -49,6 +49,9 @@ const PREMIUM_ROLE_ID = "1554248808194642043";
 const REWARD_ROLE_ID = "1554248808194642048";
 const FULL_ACCESS_ROLE_ID = "1554252558359470182";
 const POST_STAFF_NOTIFY_ROLE_IDS = ["1554708798499725393", "1554708987700715531"];
+const KEY_GENERATE_ALLOWED_USER_IDS = ["1498536522624798730", "1171135786964484136"];
+const KEY_RECLAIM_ROLE_ID = "1554248808194642042";
+const KEY_PREMIUM_DURATION_MS = 2 * 60 * 60 * 1000;
 
 const DEFAULT_STAFF_QUESTIONS = [
   "👤 Confirma tu nombre y usuario de Discord (tag o ID).",
@@ -187,6 +190,7 @@ function defaultGuild() {
     invites: {},
     inviteMembers: {},
     premiumRoleTimers: {},
+    premiumKeys: {},
     staffQuestions: DEFAULT_STAFF_QUESTIONS.slice(),
     alterQuestions: DEFAULT_ALTER_QUESTIONS.slice(),
     activity: [],
@@ -243,6 +247,20 @@ function normalizeGuild(input) {
     }
   }
   g.premiumRoleTimers = normalizedRoleTimers;
+  g.premiumKeys = g.premiumKeys && typeof g.premiumKeys === "object" && !Array.isArray(g.premiumKeys) ? g.premiumKeys : {};
+  const normalizedPremiumKeys = {};
+  for (const [keyHash, record] of Object.entries(g.premiumKeys)) {
+    if (!/^[a-f0-9]{64}$/i.test(keyHash) || !record || typeof record !== "object") continue;
+    const createdAt = Number(record.createdAt);
+    if (!Number.isFinite(createdAt) || createdAt <= 0) continue;
+    normalizedPremiumKeys[keyHash.toLowerCase()] = {
+      createdAt,
+      createdBy: sanitizeSnowflake(record.createdBy),
+      redeemedAt: Math.max(0, Number(record.redeemedAt) || 0),
+      redeemedBy: sanitizeSnowflake(record.redeemedBy)
+    };
+  }
+  g.premiumKeys = normalizedPremiumKeys;
   for (const [inviterId, stats] of Object.entries(g.invites)) {
     if (!/^\d{17,20}$/.test(inviterId) || !stats || typeof stats !== "object") {
       delete g.invites[inviterId];
@@ -1509,6 +1527,20 @@ const commands = [
       .setRequired(true)),
 
   new SlashCommandBuilder()
+    .setName("key-generate")
+    .setDescription("Genera 5 claves Premium de un solo uso, válidas por 2 horas cada una."),
+
+  new SlashCommandBuilder()
+    .setName("key-reclaim")
+    .setDescription("Canjea una clave por 2 horas de Premium.")
+    .addStringOption(o => o
+      .setName("key")
+      .setDescription("Clave Premium que quieres canjear.")
+      .setMinLength(10)
+      .setMaxLength(40)
+      .setRequired(true)),
+
+  new SlashCommandBuilder()
     .setName("time-premium")
     .setDescription("Muestra cuánto tiempo Premium te queda.")
     .addUserOption(o => o.setName("usuario").setDescription("Solo Staff puede consultar a otro usuario.")),
@@ -2238,6 +2270,137 @@ client.on("interactionCreate", async interaction => {
         .setFooter({ text: "Nexus Invite Tracker" })
         .setTimestamp();
       return interaction.reply({ embeds: [embed] });
+    }
+
+    if (name === "key-generate") {
+      if (!KEY_GENERATE_ALLOWED_USER_IDS.includes(interaction.user.id)) {
+        return interaction.reply({ content: "No tienes permiso para generar claves Premium.", ephemeral: true });
+      }
+
+      const gd = getGuild(interaction.guild.id);
+      if (!gd.premiumKeys || typeof gd.premiumKeys !== "object" || Array.isArray(gd.premiumKeys)) gd.premiumKeys = {};
+      const now = Date.now();
+      const generatedCodes = [];
+
+      for (let i = 0; i < 5; i++) {
+        let code;
+        let keyHash;
+        do {
+          const random = crypto.randomBytes(12).toString("hex").toUpperCase();
+          code = "NEXUS-" + random.slice(0, 8) + "-" + random.slice(8, 16) + "-" + random.slice(16, 24);
+          keyHash = crypto.createHash("sha256").update(code).digest("hex");
+        } while (gd.premiumKeys[keyHash]);
+
+        gd.premiumKeys[keyHash] = {
+          createdAt: now,
+          createdBy: interaction.user.id,
+          redeemedAt: 0,
+          redeemedBy: null
+        };
+        generatedCodes.push(code);
+      }
+
+      db.guilds[interaction.guild.id] = gd;
+      saveDB("premium keys generated");
+      recordActivity(interaction.guild.id, "Claves Premium generadas", activityUser(interaction.user), "Se generaron 5 claves de un solo uso, duración de 2 horas cada una.");
+
+      const embed = new EmbedBuilder()
+        .setColor(COLOR.purple)
+        .setTitle("🔑 5 claves Premium generadas")
+        .setDescription(
+          "Cada clave concede **2 horas de Premium** y solo se puede canjear una vez.\n" +
+          "Guarda y comparte estas claves de forma privada. No se mostrarán de nuevo.\n\n" +
+          generatedCodes.map((code, index) => "**" + (index + 1) + ".** \`" + code + "\`").join("\n")
+        )
+        .setFooter({ text: "Nexus • Cada clave es de un solo uso" })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+
+    if (name === "key-reclaim") {
+      const redeemer = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+      if (!redeemer) return interaction.reply({ content: "No pude verificar tu miembro en el servidor.", ephemeral: true });
+      if (!redeemer.roles.cache.has(KEY_RECLAIM_ROLE_ID)) {
+        return interaction.reply({ content: "Necesitas el rol <@&" + KEY_RECLAIM_ROLE_ID + "> para canjear claves.", ephemeral: true });
+      }
+
+      const inputCode = String(interaction.options.getString("key", true) || "").trim().toUpperCase();
+      if (!/^NEXUS-[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}$/.test(inputCode)) {
+        return interaction.reply({ content: "La clave no tiene un formato válido. Revisa que la hayas copiado completa.", ephemeral: true });
+      }
+
+      const gd = getGuild(interaction.guild.id);
+      if (!gd.premiumKeys || typeof gd.premiumKeys !== "object" || Array.isArray(gd.premiumKeys)) gd.premiumKeys = {};
+      const keyHash = crypto.createHash("sha256").update(inputCode).digest("hex");
+      const keyRecord = gd.premiumKeys[keyHash];
+      if (!keyRecord) {
+        return interaction.reply({ content: "Clave inválida o inexistente.", ephemeral: true });
+      }
+      if (Number(keyRecord.redeemedAt) > 0) {
+        return interaction.reply({ content: "Esta clave ya fue canjeada y no se puede volver a usar.", ephemeral: true });
+      }
+
+      const role = await interaction.guild.roles.fetch(PREMIUM_ROLE_ID).catch(() => null);
+      if (!role) return interaction.reply({ content: "No encontré el rol Premium configurado.", ephemeral: true });
+
+      const botMember = interaction.guild.members.me || await interaction.guild.members.fetchMe().catch(() => null);
+      if (!botMember?.permissions.has(PermissionFlagsBits.ManageRoles) || !role.editable ||
+          botMember.roles.highest.comparePositionTo(role) <= 0) {
+        return interaction.reply({ content: "No puedo gestionar el rol Premium. Revisa Gestionar roles y la jerarquía del bot.", ephemeral: true });
+      }
+
+      const now = Date.now();
+      const timerKey = redeemer.id + ":" + PREMIUM_ROLE_ID;
+      const oldTimer = gd.premiumRoleTimers?.[timerKey] ||
+        gd.premiumRoleTimers?.[redeemer.id] || null;
+      const oldExpiresAt = Number(oldTimer?.expiresAt);
+      const expiresAt = Math.max(now, Number.isFinite(oldExpiresAt) ? oldExpiresAt : now) + KEY_PREMIUM_DURATION_MS;
+
+      // Reserve the key before awaiting Discord role changes, preventing concurrent double-claims.
+      keyRecord.redeemedAt = now;
+      keyRecord.redeemedBy = redeemer.id;
+      gd.premiumKeys[keyHash] = keyRecord;
+      db.guilds[interaction.guild.id] = gd;
+      saveDB("premium key reserved");
+
+      try {
+        if (!redeemer.roles.cache.has(PREMIUM_ROLE_ID)) {
+          await redeemer.roles.add(role, "Clave Premium canjeada por " + interaction.user.tag);
+        }
+      } catch (error) {
+        keyRecord.redeemedAt = 0;
+        keyRecord.redeemedBy = null;
+        gd.premiumKeys[keyHash] = keyRecord;
+        saveDB("premium key claim rollback");
+        console.error("Nexus: no pude asignar Premium al canjear la clave:", error);
+        return interaction.reply({ content: "No pude asignarte Premium. La clave sigue disponible; revisa los permisos del bot e inténtalo de nuevo.", ephemeral: true });
+      }
+
+      if (!gd.premiumRoleTimers || typeof gd.premiumRoleTimers !== "object") gd.premiumRoleTimers = {};
+      delete gd.premiumRoleTimers[redeemer.id];
+      gd.premiumRoleTimers[timerKey] = {
+        roleId: PREMIUM_ROLE_ID,
+        expiresAt,
+        grantedBy: redeemer.id,
+        grantedAt: now
+      };
+      db.guilds[interaction.guild.id] = gd;
+      saveDB("premium key redeemed");
+      recordActivity(interaction.guild.id, "Clave Premium canjeada", activityUser(interaction.user), "Premium concedido por 2 horas; vence <t:" + Math.floor(expiresAt / 1000) + ":F>.");
+
+      const embed = new EmbedBuilder()
+        .setColor(COLOR.green)
+        .setTitle("✅ Clave canjeada correctamente")
+        .setDescription(
+          "**Usuario:** " + interaction.user + "\n" +
+          "**Rango recibido:** <@&" + PREMIUM_ROLE_ID + ">\n" +
+          "**Tiempo añadido:** **2 horas**\n" +
+          "**Vence:** <t:" + Math.floor(expiresAt / 1000) + ":F> (<t:" + Math.floor(expiresAt / 1000) + ":R>)" +
+          (oldExpiresAt > now ? "\n\nTu tiempo Premium anterior se conservó y se añadieron las 2 horas." : "")
+        )
+        .setFooter({ text: "Nexus • Clave de un solo uso" })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
     if (name === "time-premium" || name === "time-bassic") {
