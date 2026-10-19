@@ -2580,7 +2580,7 @@ client.on("interactionCreate", async interaction => {
       saveDB("premium key reserved");
 
       try {
-        if (!redeemer.roles.cache.has(PREMIUM_ROLE_ID)) {
+        if (!redeemer.roles.cache.has(grantedRoleId)) {
           await redeemer.roles.add(role, "Clave NOXXA de " + grantedRoleLabel + " canjeada por " + interaction.user.tag);
         }
       } catch (error) {
@@ -2588,14 +2588,14 @@ client.on("interactionCreate", async interaction => {
         keyRecord.redeemedBy = null;
         gd.premiumKeys[keyHash] = keyRecord;
         saveDB("premium key claim rollback");
-        console.error("Nexus: no pude asignar Premium al canjear la clave:", error);
-        return interaction.reply({ content: "No pude asignarte Premium. La clave sigue disponible; revisa los permisos del bot e inténtalo de nuevo.", ephemeral: true });
+        console.error("Nexus: no pude asignar " + grantedRoleLabel + " al canjear la clave:", error);
+        return interaction.reply({ content: "No pude asignarte " + grantedRoleLabel + ". La clave sigue disponible; revisa los permisos del bot e inténtalo de nuevo.", ephemeral: true });
       }
 
       if (!gd.premiumRoleTimers || typeof gd.premiumRoleTimers !== "object") gd.premiumRoleTimers = {};
-      delete gd.premiumRoleTimers[redeemer.id];
+      if (grantedRoleId === PREMIUM_ROLE_ID) delete gd.premiumRoleTimers[redeemer.id];
       gd.premiumRoleTimers[timerKey] = {
-        roleId: PREMIUM_ROLE_ID,
+        roleId: grantedRoleId,
         expiresAt,
         grantedBy: redeemer.id,
         grantedAt: now
