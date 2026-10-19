@@ -814,7 +814,7 @@ function roleMention(id) {
 
 function isStaff(member) {
   if (!member) return false;
-  if (member.roles?.cache?.has(FULL_ACCESS_ROLE_ID)) return true;
+  if (member.roles?.cache?.has(FULL_ACCESS_ROLE_ID) || member.roles?.cache?.has(STAFF_TEAM_ROLE_ID)) return true;
   const gd = getGuild(member.guild.id);
   return member.permissions.has(PermissionFlagsBits.Administrator) ||
     member.permissions.has(PermissionFlagsBits.ManageGuild) ||
@@ -1507,6 +1507,14 @@ const commands = [
       .setMinLength(2)
       .setMaxLength(6)
       .setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName("transferir")
+    .setDescription("Transfiere tiempo de tu rol Premium o Básico a otro usuario.")
+    .addUserOption(o => o.setName("usuario").setDescription("Usuario que recibirá el tiempo.").setRequired(true))
+    .addStringOption(o => o.setName("rango").setDescription("Rol cuyo tiempo quieres transferir.").setRequired(true)
+      .addChoices({ name: "Premium", value: "premium" }, { name: "Básico", value: "basico" }))
+    .addStringOption(o => o.setName("tiempo").setDescription("Tiempo a transferir: 30m, 1h, 2d.").setMinLength(2).setMaxLength(6).setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("give-premium")
@@ -2218,6 +2226,102 @@ client.on("interactionCreate", async interaction => {
         .setTitle("Top 10 de invitaciones")
         .setDescription(description)
         .setFooter({ text: "Nexus Invite Tracker" })
+        .setTimestamp();
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    if (name === "transferir") {
+      const TRANSFER_ACCESS_ROLE_ID = "1554248808194642042";
+      const hasTransferAccess = isStaff(interaction.member) ||
+        interaction.member?.roles?.cache?.has(TRANSFER_ACCESS_ROLE_ID);
+      if (!hasTransferAccess) {
+        return interaction.reply({ content: "No tienes permiso para usar /transferir.", ephemeral: true });
+      }
+
+      const targetUser = interaction.options.getUser("usuario", true);
+      const rank = interaction.options.getString("rango", true);
+      const durationInput = interaction.options.getString("tiempo", true);
+      const durationMs = parseDurationMs(durationInput);
+      if (!durationMs) {
+        return interaction.reply({ content: "Tiempo inválido. Usa `30m`, `1h`, `1d` o `2w` (máximo 365 días).", ephemeral: true });
+      }
+      if (targetUser.bot) return interaction.reply({ content: "No puedes transferir tiempo a un bot.", ephemeral: true });
+      if (targetUser.id === interaction.user.id) return interaction.reply({ content: "Elige a otra persona; no puedes transferirte tiempo a ti mismo.", ephemeral: true });
+
+      const roleId = rank === "premium" ? PREMIUM_ROLE_ID : "1554248808194642044";
+      const roleLabel = rank === "premium" ? "Premium" : "Básico";
+      const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+      if (!role) return interaction.reply({ content: "No encontré el rol " + roleLabel + " (<@&" + roleId + ">).", ephemeral: true });
+
+      const botMember = interaction.guild.members.me || await interaction.guild.members.fetchMe().catch(() => null);
+      if (!botMember?.permissions.has(PermissionFlagsBits.ManageRoles) || !role.editable ||
+          botMember.roles.highest.comparePositionTo(role) <= 0) {
+        return interaction.reply({ content: "No puedo gestionar el rol " + roleLabel + ". Revisa Gestionar roles y la jerarquía del bot.", ephemeral: true });
+      }
+
+      const sender = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+      const recipient = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+      if (!sender || !recipient) return interaction.reply({ content: "No encontré a uno de los usuarios dentro del servidor.", ephemeral: true });
+
+      const gd = getGuild(interaction.guild.id);
+      if (!gd.premiumRoleTimers || typeof gd.premiumRoleTimers !== "object" || Array.isArray(gd.premiumRoleTimers)) gd.premiumRoleTimers = {};
+      const now = Date.now();
+      const senderKey = sender.id + ":" + roleId;
+      const recipientKey = recipient.id + ":" + roleId;
+      const senderRecord = gd.premiumRoleTimers[senderKey] ||
+        (roleId === PREMIUM_ROLE_ID ? gd.premiumRoleTimers[sender.id] : null);
+      const senderExpiry = Number(senderRecord?.expiresAt);
+      if (!senderRecord || !Number.isFinite(senderExpiry) || senderExpiry <= now || !sender.roles.cache.has(roleId)) {
+        return interaction.reply({ content: "No tienes tiempo temporal activo registrado para el rol " + roleLabel + ".", ephemeral: true });
+      }
+      const remaining = senderExpiry - now;
+      if (durationMs > remaining) {
+        return interaction.reply({ content: "No tienes suficiente tiempo. Te queda aproximadamente " + formatDuration(remaining) + ".", ephemeral: true });
+      }
+
+      const recipientRecord = gd.premiumRoleTimers[recipientKey] ||
+        (roleId === PREMIUM_ROLE_ID ? gd.premiumRoleTimers[recipient.id] : null);
+      const recipientExpiry = Number(recipientRecord?.expiresAt);
+      const newRecipientExpiry = Math.max(now, Number.isFinite(recipientExpiry) ? recipientExpiry : now) + durationMs;
+      try {
+        if (!recipient.roles.cache.has(roleId)) await recipient.roles.add(role, "Tiempo transferido por " + interaction.user.tag);
+      } catch (error) {
+        console.error("Nexus: no pude asignar el rol al destinatario de transferencia:", error);
+        return interaction.reply({ content: "No pude asignar el rol al destinatario. Revisa permisos y jerarquía; no se descontó tu tiempo.", ephemeral: true });
+      }
+
+      const newSenderExpiry = senderExpiry - durationMs;
+      if (newSenderExpiry <= now) {
+        try {
+          if (sender.roles.cache.has(roleId)) await sender.roles.remove(role, "Tiempo transferido a " + targetUser.tag);
+        } catch (error) {
+          console.error("Nexus: no pude retirar el rol del remitente en transferencia:", error);
+          return interaction.reply({ content: "No pude retirar tu rol. No se guardó la transferencia; revisa permisos y jerarquía.", ephemeral: true });
+        }
+        delete gd.premiumRoleTimers[senderKey];
+        if (roleId === PREMIUM_ROLE_ID) delete gd.premiumRoleTimers[sender.id];
+      } else {
+        gd.premiumRoleTimers[senderKey] = { ...senderRecord, roleId, expiresAt: newSenderExpiry };
+        if (roleId === PREMIUM_ROLE_ID) delete gd.premiumRoleTimers[sender.id];
+      }
+      gd.premiumRoleTimers[recipientKey] = {
+        roleId,
+        expiresAt: newRecipientExpiry,
+        grantedBy: recipientRecord?.grantedBy || interaction.user.id,
+        grantedAt: recipientRecord?.grantedAt || now
+      };
+      if (roleId === PREMIUM_ROLE_ID) delete gd.premiumRoleTimers[recipient.id];
+      db.guilds[interaction.guild.id] = gd;
+      saveDB("role time transfer");
+      recordActivity(interaction.guild.id, roleLabel + " transferido", activityUser(targetUser),
+        formatDuration(durationMs) + " transferido desde " + interaction.user.tag);
+      const embed = new EmbedBuilder()
+        .setColor(COLOR.purple)
+        .setTitle("Transferencia de " + roleLabel)
+        .setDescription("**De:** " + interaction.user + "\n**Para:** " + targetUser +
+          "\n**Transferido:** " + formatDuration(durationMs) +
+          "\n**Tu tiempo restante:** " + (newSenderExpiry > now ? formatDuration(newSenderExpiry - now) : "0 (rol retirado)") +
+          "\n**Tiempo del destinatario hasta:** <t:" + Math.floor(newRecipientExpiry / 1000) + ":F> (<t:" + Math.floor(newRecipientExpiry / 1000) + ":R>)")
         .setTimestamp();
       return interaction.reply({ embeds: [embed] });
     }
