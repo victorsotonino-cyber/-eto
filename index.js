@@ -23,7 +23,7 @@ const {
   TextInputStyle
 } = require("discord.js");
 
-const TOKEN = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN;
+const TOKEN = process.env.DISCORD_TOKEN || process.env.DISCORD_BOT_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN || process.env.discord_token;
 const CLIENT_ID = "1557167878183067688";
 const GUILD_ID = "1554248808194642040";
 const PORT = Number.isFinite(Number(process.env.PORT)) ? Number(process.env.PORT) : 3000;
