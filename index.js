@@ -211,18 +211,38 @@ function normalizeGuild(input) {
   g.invites = g.invites && typeof g.invites === "object" && !Array.isArray(g.invites) ? g.invites : {};
   g.inviteMembers = g.inviteMembers && typeof g.inviteMembers === "object" && !Array.isArray(g.inviteMembers) ? g.inviteMembers : {};
   g.premiumRoleTimers = g.premiumRoleTimers && typeof g.premiumRoleTimers === "object" && !Array.isArray(g.premiumRoleTimers) ? g.premiumRoleTimers : {};
-  for (const [userId, record] of Object.entries(g.premiumRoleTimers)) {
+  // Normaliza temporizadores antiguos y nuevos a la clave userId:roleId.
+  // Compatibilidad: versiones previas guardaban Premium solo con la clave userId.
+  const normalizedRoleTimers = {};
+  for (const [timerKey, record] of Object.entries(g.premiumRoleTimers)) {
     const expiresAt = Number(record?.expiresAt);
-    if (!/^\d{17,20}$/.test(userId) || !record || typeof record !== "object" || !Number.isFinite(expiresAt) || expiresAt <= 0) {
-      delete g.premiumRoleTimers[userId];
+    if (!record || typeof record !== "object" || !Number.isFinite(expiresAt) || expiresAt <= 0) continue;
+
+    const legacyKey = /^\\d{17,20}$/.test(timerKey);
+    const keyParts = timerKey.split(":");
+    const userId = sanitizeSnowflake(legacyKey ? timerKey : keyParts[0]);
+    const roleId = sanitizeSnowflake(record.roleId) ||
+      sanitizeSnowflake(legacyKey ? PREMIUM_ROLE_ID : keyParts[1]);
+
+    if (!userId || !roleId) {
+      console.warn("Nexus: se ignoró un temporizador de rol con clave inválida:", timerKey);
       continue;
     }
-    g.premiumRoleTimers[userId] = {
+
+    const canonicalKey = userId + ":" + roleId;
+    const normalizedRecord = {
+      roleId,
       expiresAt,
       grantedBy: sanitizeSnowflake(record.grantedBy),
       grantedAt: Math.max(0, Number(record.grantedAt) || 0)
     };
+    const current = normalizedRoleTimers[canonicalKey];
+    // Ante duplicados, conserva la concesión más reciente.
+    if (!current || normalizedRecord.grantedAt >= current.grantedAt) {
+      normalizedRoleTimers[canonicalKey] = normalizedRecord;
+    }
   }
+  g.premiumRoleTimers = normalizedRoleTimers;
   for (const [inviterId, stats] of Object.entries(g.invites)) {
     if (!/^\d{17,20}$/.test(inviterId) || !stats || typeof stats !== "object") {
       delete g.invites[inviterId];
@@ -1694,62 +1714,88 @@ let premiumExpirySweepRunning = false;
 async function processExpiredPremiumRoles() {
   if (!client.isReady() || premiumExpirySweepRunning) return;
   premiumExpirySweepRunning = true;
+
   try {
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) return;
-    const gd = getGuild(GUILD_ID);
-    const entries = Object.entries(gd.premiumRoleTimers || {});
-    if (!entries.length) return;
 
+    const gd = getGuild(GUILD_ID);
     const now = Date.now();
-    const expiredEntries = entries.filter(([, record]) =>
+    const entries = Object.entries(gd.premiumRoleTimers || {}).filter(([, record]) =>
       Number.isFinite(Number(record?.expiresAt)) && Number(record.expiresAt) <= now
     );
-    if (!expiredEntries.length) return;
+    if (!entries.length) return;
 
-    // Fetch the configured role once per sweep, not once per expired user.
     let changed = false;
-    for (const [userId] of expiredEntries) {
+    for (const [timerKey, record] of entries) {
+      // Acepta también claves antiguas: userId para Premium y userId:roleId para ambos.
+      const parts = timerKey.split(":");
+      const legacyKey = /^\\d{17,20}$/.test(timerKey);
+      const userId = sanitizeSnowflake(legacyKey ? timerKey : parts[0]);
+      const roleId = sanitizeSnowflake(record?.roleId) ||
+        sanitizeSnowflake(legacyKey ? PREMIUM_ROLE_ID : parts[1]);
+
+      if (!userId || !roleId) {
+        console.error("Nexus: temporizador vencido inválido; se conserva para revisión:", timerKey);
+        continue;
+      }
+
       try {
         const member = await guild.members.fetch(userId).catch(error => {
-          if (Number(error?.code) === 10007) return null;
+          if (Number(error?.code) === 10007) return null; // El miembro ya no está en el servidor.
           throw error;
         });
+
         if (!member) {
-          delete gd.premiumRoleTimers[userId];
+          delete gd.premiumRoleTimers[timerKey];
           changed = true;
           continue;
         }
 
-        const roleId = String(gd.premiumRoleTimers[userId]?.roleId || PREMIUM_ROLE_ID);
         const expiringRole = await guild.roles.fetch(roleId).catch(error => {
-          if (Number(error?.code) === 10011) return null;
+          if (Number(error?.code) === 10011) return null; // El rol fue eliminado.
           throw error;
         });
+
         if (!expiringRole) {
-          // Do not discard the expiry record on a missing role or temporary API issue.
-          // Keep it so the timer can retry after the role/configuration is fixed.
-          console.error("Nexus: no existe el rol temporal " + roleId + "; se conserva el vencimiento de " + userId + " para reintentar.");
+          // No perder el vencimiento: el siguiente ciclo volverá a intentarlo.
+          console.error("Nexus: no existe el rol temporal " + roleId +
+            "; se conserva el vencimiento de " + userId + " para reintentar.");
           continue;
         }
+
         if (member.roles.cache.has(roleId)) {
+          // Si Discord rechaza la retirada, el registro se conserva y se reintenta.
           await member.roles.remove(expiringRole, "Rol temporal vencido automáticamente");
+          console.log("Nexus: rol temporal " + roleId + " retirado por vencimiento a " + userId + ".");
+          recordActivity(
+            guild.id,
+            "Rol temporal vencido",
+            activityUser(member.user),
+            "Se retiró <@&" + roleId + "> automáticamente"
+          );
+        } else {
+          console.log("Nexus: el miembro " + userId + " ya no tenía el rol temporal " + roleId + ".");
         }
-        delete gd.premiumRoleTimers[userId];
+
+        delete gd.premiumRoleTimers[timerKey];
         changed = true;
-        recordActivity(guild.id, "Rol temporal vencido", activityUser(member.user), "Se retiró <@&" + roleId + "> automáticamente");
-        console.log("Nexus: rol temporal " + roleId + " retirado por vencimiento a " + userId + ".");
       } catch (error) {
-        // Keep the record when Discord temporarily fails so the next sweep retries.
-        console.error("Nexus: no pude retirar Premium vencido a " + userId + "; lo volveré a intentar:", error.message);
+        // Errores temporales, jerarquía de roles o permisos: conserva el registro para reintentar.
+        console.error(
+          "Nexus: no pude finalizar el rol temporal " + roleId + " de " + userId +
+          "; lo volveré a intentar:",
+          error.message
+        );
       }
     }
+
     if (changed) {
       db.guilds[GUILD_ID] = gd;
-      saveDB("premium expiry sweep");
+      saveDB("role expiry sweep");
     }
   } catch (error) {
-    console.error("Nexus: fallo general revisando vencimientos Premium; se reintentará:", error.message);
+    console.error("Nexus: fallo general revisando vencimientos de roles; se reintentará:", error.message);
   } finally {
     premiumExpirySweepRunning = false;
   }
@@ -2208,7 +2254,12 @@ client.on("interactionCreate", async interaction => {
       }
 
       const gd = getGuild(interaction.guild.id);
-      gd.premiumRoleTimers[targetUser.id] = {
+      if (!gd.premiumRoleTimers || typeof gd.premiumRoleTimers !== "object") gd.premiumRoleTimers = {};
+      // Elimina el temporizador Premium antiguo de clave simple, si aún existe.
+      delete gd.premiumRoleTimers[targetUser.id];
+      const timerKey = targetUser.id + ":" + PREMIUM_ROLE_ID;
+      gd.premiumRoleTimers[timerKey] = {
+        roleId: PREMIUM_ROLE_ID,
         expiresAt,
         grantedBy: interaction.user.id,
         grantedAt: now
